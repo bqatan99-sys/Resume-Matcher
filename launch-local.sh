@@ -37,6 +37,16 @@ require_command() {
   fi
 }
 
+url_is_ready() {
+  local url="$1"
+  curl -fsS "$url" >/dev/null 2>&1
+}
+
+port_is_in_use() {
+  local port="$1"
+  lsof -ti tcp:"$port" >/dev/null 2>&1
+}
+
 append_env_if_missing() {
   local key="$1"
   local value="$2"
@@ -86,6 +96,7 @@ require_command uv
 require_command npm
 require_command curl
 require_command perl
+require_command lsof
 
 if [[ ! -f "$BACKEND_ENV_FILE" ]]; then
   info "Creating backend .env from template..."
@@ -135,39 +146,55 @@ if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   (cd "$FRONTEND_DIR" && npm install)
 fi
 
-info "Starting backend on port $BACKEND_PORT..."
-(
-  cd "$BACKEND_DIR"
-  uv run uvicorn app.main:app --reload --host "$BACKEND_HOST" --port "$BACKEND_PORT"
-) &
-BACKEND_PID=$!
-PIDS+=("$BACKEND_PID")
+if url_is_ready "$BACKEND_ORIGIN/api/v1/health"; then
+  info "Backend is already running on port $BACKEND_PORT."
+elif port_is_in_use "$BACKEND_PORT"; then
+  error "Port $BACKEND_PORT is in use, but Resume Matcher backend is not responding at $BACKEND_ORIGIN."
+  error "Stop the conflicting process or set BACKEND_PORT to another port."
+  exit 1
+else
+  info "Starting backend on port $BACKEND_PORT..."
+  (
+    cd "$BACKEND_DIR"
+    uv run uvicorn app.main:app --reload --host "$BACKEND_HOST" --port "$BACKEND_PORT"
+  ) &
+  BACKEND_PID=$!
+  PIDS+=("$BACKEND_PID")
 
-info "Waiting for backend health check..."
-for _ in {1..30}; do
-  if curl -fsS "$BACKEND_ORIGIN/api/v1/health" >/dev/null 2>&1; then
-    info "Backend is ready."
-    break
-  fi
-  if ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
-    error "Backend exited during startup."
+  info "Waiting for backend health check..."
+  for _ in {1..30}; do
+    if url_is_ready "$BACKEND_ORIGIN/api/v1/health"; then
+      info "Backend is ready."
+      break
+    fi
+    if ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
+      error "Backend exited during startup."
+      exit 1
+    fi
+    sleep 1
+  done
+
+  if ! url_is_ready "$BACKEND_ORIGIN/api/v1/health"; then
+    error "Backend did not become ready on $BACKEND_ORIGIN."
     exit 1
   fi
-  sleep 1
-done
-
-if ! curl -fsS "$BACKEND_ORIGIN/api/v1/health" >/dev/null 2>&1; then
-  error "Backend did not become ready on $BACKEND_ORIGIN."
-  exit 1
 fi
 
-info "Starting frontend on port $FRONTEND_PORT..."
-(
-  cd "$FRONTEND_DIR"
-  BACKEND_ORIGIN="$BACKEND_ORIGIN" npm run dev -- --port "$FRONTEND_PORT"
-) &
-FRONTEND_PID=$!
-PIDS+=("$FRONTEND_PID")
+if url_is_ready "$FRONTEND_BASE_URL"; then
+  info "Frontend is already running on port $FRONTEND_PORT."
+elif port_is_in_use "$FRONTEND_PORT"; then
+  error "Port $FRONTEND_PORT is in use, but Resume Matcher frontend is not responding at $FRONTEND_BASE_URL."
+  error "Stop the conflicting process or set FRONTEND_PORT to another port."
+  exit 1
+else
+  info "Starting frontend on port $FRONTEND_PORT..."
+  (
+    cd "$FRONTEND_DIR"
+    BACKEND_ORIGIN="$BACKEND_ORIGIN" npm run dev -- --port "$FRONTEND_PORT"
+  ) &
+  FRONTEND_PID=$!
+  PIDS+=("$FRONTEND_PID")
+fi
 
 cat <<EOF
 
