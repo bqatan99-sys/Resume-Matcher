@@ -29,6 +29,7 @@ import { useResumePreview } from '@/components/common/resume_previewer_context';
 import { PaginatedPreview } from '@/components/preview';
 import {
   downloadResumePdf,
+  downloadResumeDocx,
   downloadCoverLetterPdf,
   getResumePdfUrl,
   getCoverLetterPdfUrl,
@@ -467,6 +468,31 @@ const ResumeBuilderContent = () => {
     }
   };
 
+  const handleDownloadDocx = async () => {
+    if (!resumeId) {
+      showNotification(t('builder.alerts.downloadNotAvailable'), 'warning');
+      return;
+    }
+    try {
+      setIsDownloading(true);
+      const blob = await downloadResumeDocx(resumeId);
+      const company = getCompanyFromTitle(resumeTitle);
+      const userName = resumeData.personalInfo?.name?.trim() || null;
+      const filename = buildResumeFilename(userName, company, resumeId, 'resume', 'docx');
+      downloadBlobAsFile(blob, filename);
+      showNotification(t('builder.alerts.downloadSuccess'), 'success');
+    } catch (error) {
+      console.error('Failed to download DOCX resume:', error);
+      let errorMessage = t('builder.alerts.downloadFailed');
+      if (error instanceof Error && error.message) {
+        errorMessage = `${t('builder.alerts.downloadFailed')}: ${error.message}`;
+      }
+      showNotification(errorMessage, 'danger');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   // Cover letter handlers
   const handleSaveCoverLetter = async () => {
     if (!resumeId) return;
@@ -669,7 +695,16 @@ const ResumeBuilderContent = () => {
                     disabled={!resumeId || isDownloading}
                   >
                     <Download className="w-4 h-4" />
-                    {isDownloading ? t('common.generating') : t('common.download')}
+                    {isDownloading ? t('common.generating') : 'PDF'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadDocx}
+                    disabled={!resumeId || isDownloading}
+                  >
+                    <Download className="w-4 h-4" />
+                    {isDownloading ? t('common.generating') : 'DOCX'}
                   </Button>
                 </>
               )}

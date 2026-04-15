@@ -1,6 +1,7 @@
 """Resume management endpoints."""
 
 import asyncio
+import base64
 import copy
 import hashlib
 import json
@@ -58,6 +59,7 @@ from app.services.cover_letter import (
     generate_outreach_message,
     generate_resume_title,
 )
+from app.services.docx_export import generate_resume_docx_bytes
 from app.prompts import DEFAULT_IMPROVE_PROMPT_ID, IMPROVE_PROMPT_OPTIONS
 
 
@@ -148,6 +150,24 @@ def _get_original_markdown(resume: dict[str, Any]) -> str | None:
         content = resume.get("content", "")
         if content and isinstance(content, str):
             return content
+    return None
+
+
+def _get_template_docx_base64(resume: dict[str, Any] | None) -> str | None:
+    """Resolve the stored DOCX template from the resume or its ancestry."""
+    current = resume
+    visited: set[str] = set()
+    while current:
+        template_docx_base64 = current.get("template_docx_base64")
+        if template_docx_base64 and isinstance(template_docx_base64, str):
+            return template_docx_base64
+
+        parent_id = current.get("parent_id")
+        if not parent_id or parent_id in visited:
+            return None
+        visited.add(parent_id)
+        current = db.get_resume(parent_id)
+
     return None
 
 
@@ -544,6 +564,9 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
     # Store in database first with "processing" status (atomic master assignment)
     # original_markdown is preserved permanently for date reference even after
     # builder saves overwrite `content` with JSON.
+    template_docx_base64 = None
+    if (file.filename or "").lower().endswith(".docx"):
+        template_docx_base64 = base64.b64encode(content).decode("ascii")
     resume = await db.create_resume_atomic_master(
         content=markdown_content,
         content_type="md",
@@ -551,6 +574,7 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
         processed_data=None,
         processing_status="processing",
         original_markdown=markdown_content,
+        template_docx_base64=template_docx_base64,
     )
 
     # Try to parse to structured JSON (optional, may fail if LLM not configured)
@@ -1019,6 +1043,7 @@ async def improve_resume_confirm_endpoint(
             cover_letter=cover_letter,
             outreach_message=outreach_message,
             title=title,
+            template_docx_base64=_get_template_docx_base64(resume),
         )
 
         improvements_payload = [imp.model_dump() for imp in request.improvements]
@@ -1426,6 +1451,35 @@ async def download_resume_pdf(
 
     headers = {"Content-Disposition": f'attachment; filename="resume_{resume_id}.pdf"'}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+
+@router.get("/{resume_id}/docx")
+async def download_resume_docx(resume_id: str) -> Response:
+    """Generate a DOCX resume using the stored source template when available."""
+    resume = db.get_resume(resume_id)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    processed_data = resume.get("processed_data")
+    if not processed_data:
+        raise HTTPException(status_code=400, detail="Resume has no structured data to export")
+
+    template_docx_base64 = _get_template_docx_base64(resume)
+    template_bytes = (
+        base64.b64decode(template_docx_base64) if template_docx_base64 else None
+    )
+    docx_bytes = generate_resume_docx_bytes(
+        normalize_resume_data(copy.deepcopy(processed_data)),
+        template_bytes=template_bytes,
+    )
+    headers = {
+        "Content-Disposition": f'attachment; filename="resume_{resume_id}.docx"'
+    }
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers=headers,
+    )
 
 
 @router.delete("/{resume_id}")

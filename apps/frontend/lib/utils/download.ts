@@ -33,7 +33,8 @@ export function openUrlInNewTab(url: string): boolean {
 export function sanitizeFilename(
   title: string | null | undefined,
   fallbackId: string,
-  type: 'resume' | 'cover-letter' = 'resume'
+  type: 'resume' | 'cover-letter' = 'resume',
+  extension: 'pdf' | 'docx' = 'pdf'
 ): string {
   // Use fallback if no title
   if (!title?.trim()) {
@@ -57,8 +58,7 @@ export function sanitizeFilename(
     sanitized = chars.slice(0, 100).join('').trim();
   }
 
-  // Add .pdf extension
-  return `${sanitized}.pdf`;
+  return `${sanitized}.${extension}`;
 }
 
 /**
@@ -69,7 +69,8 @@ export function buildResumeFilename(
   name: string | null | undefined,
   company: string | null | undefined,
   fallbackId: string,
-  type: 'resume' | 'cover-letter' = 'resume'
+  type: 'resume' | 'cover-letter' = 'resume',
+  extension: 'pdf' | 'docx' = 'pdf'
 ): string {
   const typeLabel = type === 'resume' ? 'Resume' : 'Cover Letter';
   const cleanName = name?.trim() || null;
@@ -84,9 +85,10 @@ export function buildResumeFilename(
     return sanitizeFilename(
       cleanCompany ? `${typeLabel} - ${cleanCompany}` : null,
       fallbackId,
-      type
+      type,
+      extension
     );
   }
 
-  return sanitizeFilename(raw, fallbackId, type);
+  return sanitizeFilename(raw, fallbackId, type, extension);
 }

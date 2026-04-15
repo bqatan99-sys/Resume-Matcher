@@ -67,6 +67,7 @@ class Database:
         outreach_message: str | None = None,
         title: str | None = None,
         original_markdown: str | None = None,
+        template_docx_base64: str | None = None,
     ) -> dict[str, Any]:
         """Create a new resume entry.
 
@@ -92,6 +93,8 @@ class Database:
         }
         if original_markdown is not None:
             doc["original_markdown"] = original_markdown
+        if template_docx_base64 is not None:
+            doc["template_docx_base64"] = template_docx_base64
         self.resumes.insert(doc)
         return doc
 
@@ -105,6 +108,7 @@ class Database:
         cover_letter: str | None = None,
         outreach_message: str | None = None,
         original_markdown: str | None = None,
+        template_docx_base64: str | None = None,
     ) -> dict[str, Any]:
         """Create a new resume with atomic master assignment.
 
@@ -136,6 +140,7 @@ class Database:
                 cover_letter=cover_letter,
                 outreach_message=outreach_message,
                 original_markdown=original_markdown,
+                template_docx_base64=template_docx_base64,
             )
 
     def get_resume(self, resume_id: str) -> dict[str, Any] | None:

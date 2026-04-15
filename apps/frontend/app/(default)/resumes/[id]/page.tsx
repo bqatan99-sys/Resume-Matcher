@@ -8,6 +8,7 @@ import Resume, { ResumeData } from '@/components/dashboard/resume-component';
 import {
   fetchResume,
   downloadResumePdf,
+  downloadResumeDocx,
   getResumePdfUrl,
   deleteResume,
   retryProcessing,
@@ -185,6 +186,20 @@ export default function ResumeViewerPage() {
     }
   };
 
+  const handleDownloadDocx = async () => {
+    setIsDownloading(true);
+    try {
+      const blob = await downloadResumeDocx(resumeId);
+      const filename = sanitizeFilename(resumeTitle, resumeId, 'resume', 'docx');
+      downloadBlobAsFile(blob, filename);
+      setShowDownloadSuccessDialog(true);
+    } catch (err) {
+      console.error('Failed to download DOCX resume:', err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleDeleteResume = async () => {
     try {
       setDeleteError(null);
@@ -305,7 +320,11 @@ export default function ResumeViewerPage() {
             </Button>
             <Button variant="success" onClick={handleDownload} disabled={isDownloading}>
               <Download className="w-4 h-4" />
-              {isDownloading ? t('common.generating') : t('resumeViewer.downloadResume')}
+              {isDownloading ? t('common.generating') : 'PDF'}
+            </Button>
+            <Button variant="outline" onClick={handleDownloadDocx} disabled={isDownloading}>
+              <Download className="w-4 h-4" />
+              {isDownloading ? t('common.generating') : 'DOCX'}
             </Button>
           </div>
         </div>

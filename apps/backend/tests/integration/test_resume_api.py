@@ -1,5 +1,6 @@
 """Integration tests for resume CRUD endpoints."""
 
+import base64
 from unittest.mock import patch, AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -171,3 +172,52 @@ class TestRetryProcessing:
         async with client:
             resp = await client.post("/api/v1/resumes/res-123/retry-processing")
         assert resp.status_code == 400
+
+
+class TestDownloadResumeDocx:
+    """GET /api/v1/resumes/{resume_id}/docx"""
+
+    @patch("app.routers.resumes.db")
+    async def test_download_resume_docx(self, mock_db, client, mock_resume_record):
+        mock_db.get_resume.return_value = mock_resume_record
+        async with client:
+            resp = await client.get("/api/v1/resumes/res-123/docx")
+
+        assert resp.status_code == 200
+        assert (
+            resp.headers["content-type"]
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        assert 'filename="resume_res-123.docx"' in resp.headers["content-disposition"]
+        assert resp.content[:2] == b"PK"
+
+    @patch("app.routers.resumes.db")
+    async def test_download_resume_docx_uses_parent_template(
+        self, mock_db, client, mock_resume_record
+    ):
+        template = base64.b64encode(b"template-bytes").decode("ascii")
+        child_record = {
+            **mock_resume_record,
+            "resume_id": "child-123",
+            "parent_id": "parent-123",
+        }
+        parent_record = {
+            **mock_resume_record,
+            "resume_id": "parent-123",
+            "template_docx_base64": template,
+        }
+
+        def get_resume_side_effect(resume_id):
+            if resume_id == "child-123":
+                return child_record
+            if resume_id == "parent-123":
+                return parent_record
+            return None
+
+        mock_db.get_resume.side_effect = get_resume_side_effect
+
+        async with client:
+            resp = await client.get("/api/v1/resumes/child-123/docx")
+
+        assert resp.status_code == 200
+        assert resp.content[:2] == b"PK"

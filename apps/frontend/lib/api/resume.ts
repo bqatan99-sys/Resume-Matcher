@@ -251,6 +251,11 @@ export function getResumePdfUrl(
   return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/pdf?${params.toString()}`;
 }
 
+export function getResumeDocxUrl(resumeId: string): string {
+  const normalizedId = normalizeResumeId(resumeId);
+  return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/docx`;
+}
+
 export async function downloadResumePdf(
   resumeId: string,
   settings?: TemplateSettings,
@@ -261,6 +266,16 @@ export async function downloadResumePdf(
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Failed to download resume (status ${res.status}): ${text}`);
+  }
+  return await res.blob();
+}
+
+export async function downloadResumeDocx(resumeId: string): Promise<Blob> {
+  const url = getResumeDocxUrl(resumeId);
+  const res = await apiFetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to download resume DOCX (status ${res.status}): ${text}`);
   }
   return await res.blob();
 }
