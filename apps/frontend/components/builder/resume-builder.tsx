@@ -145,6 +145,7 @@ const ResumeBuilderContent = () => {
   const [isOutreachSaving, setIsOutreachSaving] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [resumeTitle, setResumeTitle] = useState<string | null>(null);
+  const [hasTemplateDocx, setHasTemplateDocx] = useState(false);
 
   // On-demand generation state
   const [isTailoredResume, setIsTailoredResume] = useState(false);
@@ -171,6 +172,7 @@ const ResumeBuilderContent = () => {
         const data = await fetchResume(resumeId);
         // Update resume title for downloads
         setResumeTitle(data.title ?? null);
+        setHasTemplateDocx(Boolean(data.has_template_docx));
         if (data.processed_resume) {
           setResumeData(data.processed_resume as ResumeData);
           setLastSavedData(data.processed_resume as ResumeData);
@@ -289,6 +291,7 @@ const ResumeBuilderContent = () => {
           const data = await fetchResume(resumeId);
           // Track if this is a tailored resume (has parent_id)
           setIsTailoredResume(Boolean(data.parent_id));
+          setHasTemplateDocx(Boolean(data.has_template_docx));
           // Store resume title for downloads
           setResumeTitle(data.title ?? null);
           // Load cover letter and outreach message if available
@@ -438,6 +441,10 @@ const ResumeBuilderContent = () => {
   const handleDownload = async () => {
     if (!resumeId) {
       showNotification(t('builder.alerts.downloadNotAvailable'), 'warning');
+      return;
+    }
+    if (hasTemplateDocx) {
+      showNotification('Exact formatting is preserved in DOCX for this resume. Use the DOCX download.', 'warning');
       return;
     }
     try {
@@ -660,6 +667,13 @@ const ResumeBuilderContent = () => {
                   </span>
                 )}
               </div>
+              {hasTemplateDocx && (
+                <div className="mt-4 border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  This resume uses your uploaded document as the formatting template. The editor
+                  preview is normalized for editing, and exact formatting is preserved in the DOCX
+                  download.
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-4 md:mt-0">
@@ -692,10 +706,10 @@ const ResumeBuilderContent = () => {
                     variant="success"
                     size="sm"
                     onClick={handleDownload}
-                    disabled={!resumeId || isDownloading}
+                    disabled={!resumeId || isDownloading || hasTemplateDocx}
                   >
                     <Download className="w-4 h-4" />
-                    {isDownloading ? t('common.generating') : 'PDF'}
+                    {isDownloading ? t('common.generating') : hasTemplateDocx ? 'PDF unavailable' : 'PDF'}
                   </Button>
                   <Button
                     variant="outline"

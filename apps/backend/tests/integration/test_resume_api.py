@@ -50,6 +50,7 @@ class TestGetResume:
         assert data["resume_id"] == "res-123"
         assert data["processed_resume"] is not None
         assert data["processed_resume"]["summary"] != ""
+        assert data["has_template_docx"] is False
 
     @patch("app.routers.resumes.db")
     async def test_fetch_nonexistent_returns_404(self, mock_db, client):
@@ -221,3 +222,21 @@ class TestDownloadResumeDocx:
 
         assert resp.status_code == 200
         assert resp.content[:2] == b"PK"
+
+
+class TestDownloadResumePdf:
+    """GET /api/v1/resumes/{resume_id}/pdf"""
+
+    @patch("app.routers.resumes.db")
+    async def test_download_resume_pdf_blocks_template_backed_resume(
+        self, mock_db, client, mock_resume_record
+    ):
+        mock_db.get_resume.return_value = {
+            **mock_resume_record,
+            "template_docx_base64": "ZmFrZS10ZW1wbGF0ZQ==",
+        }
+        async with client:
+            resp = await client.get("/api/v1/resumes/res-123/pdf")
+
+        assert resp.status_code == 409
+        assert "DOCX" in resp.text

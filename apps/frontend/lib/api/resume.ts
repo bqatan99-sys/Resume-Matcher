@@ -65,6 +65,7 @@ interface ResumeResponse {
     outreach_message?: string | null;
     parent_id?: string | null; // For determining if resume is tailored
     title?: string | null;
+    has_template_docx?: boolean;
   };
 }
 

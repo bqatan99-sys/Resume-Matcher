@@ -38,7 +38,9 @@ export function sanitizeFilename(
 ): string {
   // Use fallback if no title
   if (!title?.trim()) {
-    return type === 'resume' ? `resume_${fallbackId}.pdf` : `cover_letter_${fallbackId}.pdf`;
+    return type === 'resume'
+      ? `resume_${fallbackId}.${extension}`
+      : `cover_letter_${fallbackId}.${extension}`;
   }
 
   // Normalize Unicode to NFC form to ensure consistent representation

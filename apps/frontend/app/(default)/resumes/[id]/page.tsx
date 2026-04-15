@@ -45,6 +45,7 @@ export default function ResumeViewerPage() {
   const [resumeTitle, setResumeTitle] = useState<string | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState('');
+  const [hasTemplateDocx, setHasTemplateDocx] = useState(false);
 
   const resumeId = params?.id as string;
 
@@ -65,6 +66,7 @@ export default function ResumeViewerPage() {
         // Get processing status
         const status = (data.raw_resume?.processing_status || 'pending') as ProcessingStatus;
         setProcessingStatus(status);
+        setHasTemplateDocx(Boolean(data.has_template_docx));
 
         // Capture title for editable display (always set to clear stale state)
         setResumeTitle(data.title ?? null);
@@ -150,6 +152,7 @@ export default function ResumeViewerPage() {
   const reloadResumeData = async () => {
     try {
       const data = await fetchResume(resumeId);
+      setHasTemplateDocx(Boolean(data.has_template_docx));
       if (data.processed_resume) {
         setResumeData(data.processed_resume as ResumeData);
         setError(null);
@@ -165,6 +168,10 @@ export default function ResumeViewerPage() {
   };
 
   const handleDownload = async () => {
+    if (hasTemplateDocx) {
+      alert('Exact formatting is preserved in DOCX for this resume. Use the DOCX download.');
+      return;
+    }
     setIsDownloading(true);
     try {
       const blob = await downloadResumePdf(resumeId, undefined, uiLanguage);
@@ -318,9 +325,13 @@ export default function ResumeViewerPage() {
               <Edit className="w-4 h-4" />
               {t('dashboard.editResume')}
             </Button>
-            <Button variant="success" onClick={handleDownload} disabled={isDownloading}>
+            <Button
+              variant="success"
+              onClick={handleDownload}
+              disabled={isDownloading || hasTemplateDocx}
+            >
               <Download className="w-4 h-4" />
-              {isDownloading ? t('common.generating') : 'PDF'}
+              {isDownloading ? t('common.generating') : hasTemplateDocx ? 'PDF unavailable' : 'PDF'}
             </Button>
             <Button variant="outline" onClick={handleDownloadDocx} disabled={isDownloading}>
               <Download className="w-4 h-4" />
@@ -328,6 +339,13 @@ export default function ResumeViewerPage() {
             </Button>
           </div>
         </div>
+
+        {hasTemplateDocx && (
+          <div className="mb-6 border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 no-print">
+            This resume uses your uploaded document as the formatting template. The preview here is
+            the normalized editing view, and exact formatting is preserved in the DOCX download.
+          </div>
+        )}
 
         {/* Editable Title (tailored resumes only) */}
         {!isMasterResume && (
@@ -367,29 +385,44 @@ export default function ResumeViewerPage() {
 
         {/* Resume Viewer */}
         <div className="flex justify-center pb-4">
-          <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
-            <Resume
-              resumeData={localizedResumeData || resumeData}
-              additionalSectionLabels={{
-                technicalSkills: t('resume.additionalLabels.technicalSkills'),
-                languages: t('resume.additionalLabels.languages'),
-                certifications: t('resume.additionalLabels.certifications'),
-                awards: t('resume.additionalLabels.awards'),
-              }}
-              sectionHeadings={{
-                summary: t('resume.sections.summary'),
-                experience: t('resume.sections.experience'),
-                education: t('resume.sections.education'),
-                projects: t('resume.sections.projects'),
-                certifications: t('resume.sections.certifications'),
-                skills: t('resume.sections.skillsOnly'),
-                languages: t('resume.sections.languages'),
-                awards: t('resume.sections.awards'),
-                links: t('resume.sections.links'),
-              }}
-              fallbackLabels={{ name: t('resume.defaults.name') }}
-            />
-          </div>
+          {hasTemplateDocx ? (
+            <div className="w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white p-8 no-print">
+              <h3 className="font-serif text-2xl font-bold mb-4">Template-backed Resume</h3>
+              <p className="text-sm leading-6 text-black mb-4">
+                Your uploaded document remains the source of truth for formatting. This page avoids
+                showing the built-in Swiss preview because it does not match your original layout.
+              </p>
+              <p className="text-sm leading-6 text-black">
+                Use the <strong>DOCX</strong> download above for the exact preserved format. Use the
+                builder when you want to edit content, with the understanding that its preview is a
+                normalized editing view.
+              </p>
+            </div>
+          ) : (
+            <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
+              <Resume
+                resumeData={localizedResumeData || resumeData}
+                additionalSectionLabels={{
+                  technicalSkills: t('resume.additionalLabels.technicalSkills'),
+                  languages: t('resume.additionalLabels.languages'),
+                  certifications: t('resume.additionalLabels.certifications'),
+                  awards: t('resume.additionalLabels.awards'),
+                }}
+                sectionHeadings={{
+                  summary: t('resume.sections.summary'),
+                  experience: t('resume.sections.experience'),
+                  education: t('resume.sections.education'),
+                  projects: t('resume.sections.projects'),
+                  certifications: t('resume.sections.certifications'),
+                  skills: t('resume.sections.skillsOnly'),
+                  languages: t('resume.sections.languages'),
+                  awards: t('resume.sections.awards'),
+                  links: t('resume.sections.links'),
+                }}
+                fallbackLabels={{ name: t('resume.defaults.name') }}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end pt-4 no-print">

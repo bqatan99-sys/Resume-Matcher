@@ -655,6 +655,7 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
             outreach_message=resume.get("outreach_message"),
             parent_id=resume.get("parent_id"),
             title=resume.get("title"),
+            has_template_docx=bool(_get_template_docx_base64(resume)),
         ),
     )
 
@@ -1411,6 +1412,15 @@ async def download_resume_pdf(
     resume = db.get_resume(resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
+
+    if _get_template_docx_base64(resume):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This resume preserves exact formatting through DOCX export. "
+                "Use the DOCX download instead of PDF."
+            ),
+        )
 
     # Build print URL with all settings
     params = (
