@@ -240,3 +240,35 @@ class TestDownloadResumePdf:
 
         assert resp.status_code == 409
         assert "DOCX" in resp.text
+
+
+class TestAttachResumeTemplate:
+    """POST /api/v1/resumes/{resume_id}/template"""
+
+    @patch("app.routers.resumes.db")
+    async def test_attach_resume_template(self, mock_db, client, mock_resume_record):
+        mock_db.get_resume.return_value = mock_resume_record
+        mock_db.update_resume.return_value = {**mock_resume_record, "template_docx_base64": "abc"}
+
+        files = {
+            "file": (
+                "template.docx",
+                b"fake-docx-content",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        }
+        async with client:
+            resp = await client.post("/api/v1/resumes/res-123/template", files=files)
+
+        assert resp.status_code == 200
+        assert "attached successfully" in resp.json()["message"]
+
+    @patch("app.routers.resumes.db")
+    async def test_attach_resume_template_rejects_non_docx(self, mock_db, client, mock_resume_record):
+        mock_db.get_resume.return_value = mock_resume_record
+
+        files = {"file": ("template.pdf", b"nope", "application/pdf")}
+        async with client:
+            resp = await client.post("/api/v1/resumes/res-123/template", files=files)
+
+        assert resp.status_code == 400

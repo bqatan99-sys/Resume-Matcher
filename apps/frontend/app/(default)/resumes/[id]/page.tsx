@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -9,6 +9,7 @@ import {
   fetchResume,
   downloadResumePdf,
   downloadResumeDocx,
+  attachResumeTemplate,
   getResumePdfUrl,
   deleteResume,
   retryProcessing,
@@ -46,6 +47,8 @@ export default function ResumeViewerPage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [hasTemplateDocx, setHasTemplateDocx] = useState(false);
+  const [isAttachingTemplate, setIsAttachingTemplate] = useState(false);
+  const templateInputRef = useRef<HTMLInputElement | null>(null);
 
   const resumeId = params?.id as string;
 
@@ -207,6 +210,25 @@ export default function ResumeViewerPage() {
     }
   };
 
+  const handleTemplateFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    try {
+      setIsAttachingTemplate(true);
+      await attachResumeTemplate(resumeId, file);
+      const data = await fetchResume(resumeId);
+      setHasTemplateDocx(Boolean(data.has_template_docx));
+      alert('Template attached successfully. DOCX exports will now use this document format.');
+    } catch (err) {
+      console.error('Failed to attach resume template:', err);
+      alert('Failed to attach template DOCX.');
+    } finally {
+      setIsAttachingTemplate(false);
+    }
+  };
+
   const handleDeleteResume = async () => {
     try {
       setDeleteError(null);
@@ -321,6 +343,20 @@ export default function ResumeViewerPage() {
                 {t('resumeViewer.enhanceResume')}
               </Button>
             )}
+            <input
+              ref={templateInputRef}
+              type="file"
+              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={handleTemplateFileChange}
+            />
+            <Button
+              variant="outline"
+              onClick={() => templateInputRef.current?.click()}
+              disabled={isAttachingTemplate}
+            >
+              {isAttachingTemplate ? 'Attaching...' : hasTemplateDocx ? 'Replace Template' : 'Attach Template'}
+            </Button>
             <Button variant="outline" onClick={handleEdit}>
               <Edit className="w-4 h-4" />
               {t('dashboard.editResume')}
@@ -385,21 +421,16 @@ export default function ResumeViewerPage() {
 
         {/* Resume Viewer */}
         <div className="flex justify-center pb-4">
-          {hasTemplateDocx ? (
-            <div className="w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white p-8 no-print">
-              <h3 className="font-serif text-2xl font-bold mb-4">Template-backed Resume</h3>
-              <p className="text-sm leading-6 text-black mb-4">
-                Your uploaded document remains the source of truth for formatting. This page avoids
-                showing the built-in Swiss preview because it does not match your original layout.
-              </p>
-              <p className="text-sm leading-6 text-black">
-                Use the <strong>DOCX</strong> download above for the exact preserved format. Use the
-                builder when you want to edit content, with the understanding that its preview is a
-                normalized editing view.
-              </p>
-            </div>
-          ) : (
-            <div className="resume-print w-full max-w-[250mm] shadow-sw-lg border-2 border-black bg-white">
+          <div className="w-full max-w-[250mm]">
+            {hasTemplateDocx && (
+              <div className="mb-4 border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 no-print">
+                Preview below: editable normalized content view.
+                <br />
+                Exact layout: preserved in the <strong>DOCX</strong> download from your uploaded
+                template.
+              </div>
+            )}
+            <div className="resume-print shadow-sw-lg border-2 border-black bg-white">
               <Resume
                 resumeData={localizedResumeData || resumeData}
                 additionalSectionLabels={{
@@ -422,7 +453,7 @@ export default function ResumeViewerPage() {
                 fallbackLabels={{ name: t('resume.defaults.name') }}
               />
             </div>
-          )}
+          </div>
         </div>
 
         <div className="flex justify-end pt-4 no-print">

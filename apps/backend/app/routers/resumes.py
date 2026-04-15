@@ -1367,7 +1367,38 @@ async def update_resume_endpoint(
             resume_id=resume_id,
             raw_resume=raw_resume,
             processed_resume=processed_resume,
+            has_template_docx=bool(_get_template_docx_base64(updated)),
         ),
+    )
+
+
+@router.post("/{resume_id}/template", response_model=GenerateContentResponse)
+async def attach_resume_template(resume_id: str, file: UploadFile = File(...)) -> GenerateContentResponse:
+    """Attach or replace the source DOCX template for an existing resume."""
+    resume = db.get_resume(resume_id)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    filename = (file.filename or "").lower()
+    if file.content_type != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" and not filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Template must be a .docx file")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024 * 1024)}MB",
+        )
+
+    db.update_resume(
+        resume_id,
+        {"template_docx_base64": base64.b64encode(content).decode("ascii")},
+    )
+    return GenerateContentResponse(
+        content="",
+        message="Resume template attached successfully",
     )
 
 

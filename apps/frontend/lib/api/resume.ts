@@ -216,6 +216,20 @@ export async function updateResume(
   return payload.data;
 }
 
+export async function attachResumeTemplate(resumeId: string, file: File): Promise<void> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await apiFetch(`/resumes/${encodeURIComponent(resumeId)}/template`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to attach resume template (status ${res.status}): ${text}`);
+  }
+}
+
 export function getResumePdfUrl(
   resumeId: string,
   settings?: TemplateSettings,
