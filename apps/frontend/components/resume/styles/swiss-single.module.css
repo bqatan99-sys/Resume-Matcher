@@ -1,26 +1,161 @@
+/* =====================================================
+   Swiss Single-Column — Basher Qatan Exact Format
+   Font: Times New Roman | Single-column | Full-width
+   ===================================================== */
+
 @import './_tokens.css';
 
-/* 
-  Swiss Single Column Template
-  ID: swiss-single
-  
-  Uses the base token system.
-  Layout is primarily vertical stacking handled by base classes.
-*/
-
-.container {
-  /* Ensure full width usage */
-  width: 100%;
+/* --- Page wrapper --- */
+.page {
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 10.5pt;
+    line-height: 1.3;
+    color: #000;
+    background: #fff;
+    padding: 18mm 18mm 16mm 18mm;
+    width: 215.9mm;
+    min-height: 279.4mm;
+    box-sizing: border-box;
+    margin: 0 auto;
 }
 
-/* 
-  Overrides or specific tweaks for this template can go here.
-  For example, if we wanted a specific border style for section titles
-  only in this template:
-*/
+/* --- Name block (centered, bold, all-caps, large) --- */
+.nameBlock {
+    text-align: center;
+    margin-bottom: 2pt;
+}
 
-/* 
-.sectionTitle {
-  border-bottom-style: double;
-} 
-*/
+.name {
+    font-size: 16pt;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    display: block;
+}
+
+/* --- Contact line (centered, small, links inline) --- */
+.contactLine {
+    text-align: center;
+    font-size: 9.5pt;
+    color: #000;
+    margin-bottom: 6pt;
+}
+
+.contactLine a {
+    color: #000;
+    text-decoration: underline;
+}
+
+.contactSep {
+    margin: 0 4px;
+}
+
+/* --- Section header + rule --- */
+.sectionHeader {
+    font-size: 10.5pt;
+    font-weight: bold;
+    font-variant: small-caps;
+    text-decoration: underline;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-top: 8pt;
+    margin-bottom: 2pt;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1pt;
+}
+
+/* --- Entry row: org + date on same line --- */
+.entryRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 5pt;
+    margin-bottom: 0;
+}
+
+.orgName {
+    font-weight: bold;
+    font-size: 10.5pt;
+}
+
+.orgLocation {
+    font-weight: normal;
+}
+
+.entryDate {
+    font-weight: bold;
+    font-size: 10.5pt;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: 8pt;
+}
+
+/* --- Job title (italic, below org) --- */
+.jobTitle {
+    font-style: italic;
+    font-size: 10.5pt;
+    margin-bottom: 2pt;
+}
+
+/* --- Degree / education subtitle (italic) --- */
+.degree {
+    font-style: italic;
+    font-size: 10.5pt;
+    margin-bottom: 4pt;
+}
+
+/* --- Bullet list --- */
+.bulletList {
+    margin: 2pt 0 6pt 0;
+    padding-left: 18pt;
+    list-style-type: disc;
+}
+
+.bulletList li {
+    margin-bottom: 2pt;
+    font-size: 10.5pt;
+    line-height: 1.35;
+}
+
+/* --- Bold inline (key metrics) --- */
+.bulletList li strong,
+.inline strong {
+    font-weight: bold;
+}
+
+/* --- Projects bullet (italic bold project name + normal text) --- */
+.projectName {
+    font-weight: bold;
+    font-style: italic;
+}
+
+/* --- Skills section --- */
+.skillsBlock {
+    margin-top: 4pt;
+    font-size: 10.5pt;
+    line-height: 1.5;
+}
+
+.skillCategory {
+    font-weight: bold;
+}
+
+/* --- Paragraph text (summary) --- */
+.paragraph {
+    font-size: 10.5pt;
+    line-height: 1.35;
+    margin-bottom: 4pt;
+}
+
+/* --- Container override --- */
+.container {
+    width: 100%;
+}
+
+/* --- Print / PDF settings --- */
+@media print {
+    .page {
+          padding: 0;
+          width: 100%;
+    }
+}
