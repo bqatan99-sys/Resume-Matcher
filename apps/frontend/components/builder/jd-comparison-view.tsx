@@ -2,7 +2,11 @@
 
 import { useMemo } from 'react';
 import { type ResumeData } from '@/components/dashboard/resume-component';
-import { extractKeywords, calculateMatchStats } from '@/lib/utils/keyword-matcher';
+import {
+  extractKeywords,
+  calculateMatchStats,
+  calculateAtsMatchStats,
+} from '@/lib/utils/keyword-matcher';
 import { JDDisplay } from './jd-display';
 import { HighlightedResumeView } from './highlighted-resume-view';
 import { CheckCircle, Target } from 'lucide-react';
@@ -58,6 +62,7 @@ export function JDComparisonView({ jobDescription, resumeData }: JDComparisonVie
 
   // Calculate match statistics
   const stats = useMemo(() => calculateMatchStats(resumeText, keywords), [resumeText, keywords]);
+  const atsStats = useMemo(() => calculateAtsMatchStats(resumeData, keywords), [resumeData, keywords]);
 
   return (
     <div className="h-full flex flex-col">
@@ -77,21 +82,39 @@ export function JDComparisonView({ jobDescription, resumeData }: JDComparisonVie
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-mono text-ink-soft">
-            {t('builder.jdMatch.stats.matchRateLabel')}
-          </span>
-          <span
-            className={`text-lg font-bold ${
-              stats.matchPercentage >= 50
-                ? 'text-green-600'
-                : stats.matchPercentage >= 30
-                  ? 'text-yellow-600'
-                  : 'text-red-600'
-            }`}
-          >
-            {stats.matchPercentage}%
-          </span>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-mono text-ink-soft">
+              {t('builder.jdMatch.stats.keywordOverlapLabel')}
+            </span>
+            <span
+              className={`text-lg font-bold ${
+                stats.matchPercentage >= 50
+                  ? 'text-green-600'
+                  : stats.matchPercentage >= 30
+                    ? 'text-yellow-600'
+                    : 'text-red-600'
+              }`}
+            >
+              {stats.matchPercentage}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-mono text-ink-soft">
+              {t('builder.jdMatch.stats.atsScoreLabel')}
+            </span>
+            <span
+              className={`text-lg font-bold ${
+                atsStats.atsScore >= 65
+                  ? 'text-green-600'
+                  : atsStats.atsScore >= 45
+                    ? 'text-yellow-600'
+                    : 'text-red-600'
+              }`}
+            >
+              {atsStats.atsScore}%
+            </span>
+          </div>
         </div>
       </div>
 

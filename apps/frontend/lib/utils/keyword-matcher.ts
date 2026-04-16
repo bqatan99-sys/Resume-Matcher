@@ -2,6 +2,8 @@
  * Keyword extraction and matching utilities for JD-Resume comparison.
  */
 
+import type { ResumeData } from '@/components/dashboard/resume-component';
+
 // Common English stop words to filter out
 const STOP_WORDS = new Set([
   // Articles
@@ -282,4 +284,103 @@ export function calculateMatchStats(
   const matchPercentage = totalKeywords > 0 ? Math.round((matchCount / totalKeywords) * 100) : 0;
 
   return { matchedKeywords, matchCount, totalKeywords, matchPercentage };
+}
+
+type ResumeKeywordBuckets = {
+  summary: Set<string>;
+  titles: Set<string>;
+  skills: Set<string>;
+  body: Set<string>;
+};
+
+function collectResumeKeywordBuckets(resumeData: ResumeData): ResumeKeywordBuckets {
+  const summary = new Set<string>();
+  const titles = new Set<string>();
+  const skills = new Set<string>();
+  const body = new Set<string>();
+
+  const addTo = (bucket: Set<string>, text?: string | null) => {
+    if (!text) return;
+    for (const keyword of extractKeywords(text)) {
+      bucket.add(keyword);
+    }
+  };
+
+  addTo(summary, resumeData.summary);
+
+  resumeData.workExperience?.forEach((exp) => {
+    addTo(titles, exp.title);
+    addTo(titles, exp.company);
+    exp.description?.forEach((line) => addTo(body, line));
+  });
+
+  resumeData.education?.forEach((edu) => {
+    addTo(titles, edu.degree);
+    addTo(titles, edu.institution);
+    addTo(body, edu.description);
+  });
+
+  resumeData.personalProjects?.forEach((project) => {
+    addTo(titles, project.name);
+    addTo(titles, project.role);
+    addTo(body, project.github);
+    addTo(body, project.website);
+    project.description?.forEach((line) => addTo(body, line));
+  });
+
+  if (resumeData.additional) {
+    resumeData.additional.technicalSkills?.forEach((item) => addTo(skills, item));
+    resumeData.additional.certificationsTraining?.forEach((item) => addTo(skills, item));
+    resumeData.additional.languages?.forEach((item) => addTo(body, item));
+    resumeData.additional.awards?.forEach((item) => addTo(body, item));
+  }
+
+  return { summary, titles, skills, body };
+}
+
+/**
+ * Approximate ATS-style score.
+ *
+ * This is intentionally more conservative than raw keyword overlap:
+ * - skills/certifications carry the most weight
+ * - summary and titles matter more than incidental mentions
+ * - repeated evidence across sections improves confidence
+ */
+export function calculateAtsMatchStats(
+  resumeData: ResumeData,
+  jdKeywords: Set<string>
+): {
+  matchedKeywords: Set<string>;
+  totalKeywords: number;
+  atsScore: number;
+} {
+  const buckets = collectResumeKeywordBuckets(resumeData);
+  let weightedScore = 0;
+  const matchedKeywords = new Set<string>();
+
+  for (const keyword of jdKeywords) {
+    let coverage = 0;
+
+    if (buckets.skills.has(keyword)) coverage += 0.45;
+    if (buckets.summary.has(keyword)) coverage += 0.25;
+    if (buckets.titles.has(keyword)) coverage += 0.2;
+    if (buckets.body.has(keyword)) coverage += 0.15;
+
+    const sectionHits = [
+      buckets.skills.has(keyword),
+      buckets.summary.has(keyword),
+      buckets.titles.has(keyword),
+      buckets.body.has(keyword),
+    ].filter(Boolean).length;
+
+    if (sectionHits >= 2) coverage += 0.1;
+    if (coverage > 0) matchedKeywords.add(keyword);
+
+    weightedScore += Math.min(coverage, 1);
+  }
+
+  const totalKeywords = jdKeywords.size;
+  const atsScore = totalKeywords > 0 ? Math.round((weightedScore / totalKeywords) * 100) : 0;
+
+  return { matchedKeywords, totalKeywords, atsScore };
 }

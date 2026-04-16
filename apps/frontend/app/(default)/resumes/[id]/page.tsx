@@ -57,6 +57,72 @@ export default function ResumeViewerPage() {
     return withLocalizedDefaultSections(resumeData, t);
   }, [resumeData, t]);
 
+  const templateAwarePreviewData = useMemo(() => {
+    const baseData = localizedResumeData || resumeData;
+    if (!baseData || !hasTemplateDocx) return baseData;
+
+    const technicalSkills = baseData.additional?.technicalSkills || [];
+    const toolHints = new Set([
+      'sql',
+      'python',
+      'numpy',
+      'pandas',
+      'data visualization',
+      'lovable',
+      'bolt.new',
+      'automation',
+      'api integration',
+      'jira',
+      'figma',
+      'prototyping',
+    ]);
+    const productSkills = technicalSkills.filter((skill) => !toolHints.has(skill.toLowerCase()));
+    const dataToolSkills = technicalSkills.filter((skill) => toolHints.has(skill.toLowerCase()));
+    const certificationLine = [
+      ...(baseData.additional?.certificationsTraining || []),
+      ...(baseData.additional?.languages?.length
+        ? [`Languages: ${(baseData.additional?.languages || []).join(', ')}`]
+        : []),
+      ...(baseData.additional?.awards?.length
+        ? [`Awards: ${(baseData.additional?.awards || []).join(', ')}`]
+        : []),
+    ];
+
+    return {
+      ...baseData,
+      sectionMeta: (baseData.sectionMeta || []).map((section) => {
+        if (!section.isDefault) return section;
+        const displayNameMap: Record<string, string> = {
+          summary: 'PROFESSIONAL SUMMARY',
+          workExperience: 'EXPERIENCE',
+          education: 'EDUCATION',
+          personalProjects: 'PROJECTS',
+          additional: 'SKILLS',
+        };
+        return {
+          ...section,
+          displayName: displayNameMap[section.key] || section.displayName,
+        };
+      }),
+      additional: {
+        ...baseData.additional,
+        technicalSkills: productSkills,
+        languages: dataToolSkills,
+        certificationsTraining: certificationLine,
+        awards: [],
+      },
+      personalProjects: (baseData.personalProjects || []).map((project) => ({
+        ...project,
+        role: '',
+        years: '',
+        description:
+          project.description && project.description.length > 0
+            ? [project.description.join(' ')]
+            : project.description,
+      })),
+    };
+  }, [hasTemplateDocx, localizedResumeData, resumeData]);
+
   useEffect(() => {
     if (!resumeId) return;
 
@@ -171,10 +237,6 @@ export default function ResumeViewerPage() {
   };
 
   const handleDownload = async () => {
-    if (hasTemplateDocx) {
-      alert('Exact formatting is preserved in DOCX for this resume. Use the DOCX download.');
-      return;
-    }
     setIsDownloading(true);
     try {
       const blob = await downloadResumePdf(resumeId, undefined, uiLanguage);
@@ -220,7 +282,7 @@ export default function ResumeViewerPage() {
       await attachResumeTemplate(resumeId, file);
       const data = await fetchResume(resumeId);
       setHasTemplateDocx(Boolean(data.has_template_docx));
-      alert('Template attached successfully. DOCX exports will now use this document format.');
+      alert('Template attached successfully. PDF and DOCX exports will now use this document format.');
     } catch (err) {
       console.error('Failed to attach resume template:', err);
       alert('Failed to attach template DOCX.');
@@ -364,10 +426,10 @@ export default function ResumeViewerPage() {
             <Button
               variant="success"
               onClick={handleDownload}
-              disabled={isDownloading || hasTemplateDocx}
+              disabled={isDownloading}
             >
               <Download className="w-4 h-4" />
-              {isDownloading ? t('common.generating') : hasTemplateDocx ? 'PDF unavailable' : 'PDF'}
+              {isDownloading ? t('common.generating') : 'PDF'}
             </Button>
             <Button variant="outline" onClick={handleDownloadDocx} disabled={isDownloading}>
               <Download className="w-4 h-4" />
@@ -379,7 +441,7 @@ export default function ResumeViewerPage() {
         {hasTemplateDocx && (
           <div className="mb-6 border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 no-print">
             This resume uses your uploaded document as the formatting template. The preview here is
-            the normalized editing view, and exact formatting is preserved in the DOCX download.
+            the normalized editing view, and preserved formatting is available in both PDF and DOCX downloads.
           </div>
         )}
 
@@ -426,17 +488,17 @@ export default function ResumeViewerPage() {
               <div className="mb-4 border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 no-print">
                 Preview below: editable normalized content view.
                 <br />
-                Exact layout: preserved in the <strong>DOCX</strong> download from your uploaded
+                Exact layout: preserved in the <strong>PDF</strong> and <strong>DOCX</strong> downloads from your uploaded
                 template.
               </div>
             )}
             <div className="resume-print shadow-sw-lg border-2 border-black bg-white">
               <Resume
-                resumeData={localizedResumeData || resumeData}
+                resumeData={templateAwarePreviewData || resumeData}
                 additionalSectionLabels={{
-                  technicalSkills: t('resume.additionalLabels.technicalSkills'),
-                  languages: t('resume.additionalLabels.languages'),
-                  certifications: t('resume.additionalLabels.certifications'),
+                  technicalSkills: hasTemplateDocx ? 'Product:' : t('resume.additionalLabels.technicalSkills'),
+                  languages: hasTemplateDocx ? 'Data & Tools:' : t('resume.additionalLabels.languages'),
+                  certifications: hasTemplateDocx ? 'Certifications:' : t('resume.additionalLabels.certifications'),
                   awards: t('resume.additionalLabels.awards'),
                 }}
                 sectionHeadings={{
@@ -451,6 +513,11 @@ export default function ResumeViewerPage() {
                   links: t('resume.sections.links'),
                 }}
                 fallbackLabels={{ name: t('resume.defaults.name') }}
+                contactDisplayOverrides={
+                  hasTemplateDocx
+                    ? { linkedin: 'LinkedIn', website: 'Portfolio', github: 'GitHub' }
+                    : undefined
+                }
               />
             </div>
           </div>

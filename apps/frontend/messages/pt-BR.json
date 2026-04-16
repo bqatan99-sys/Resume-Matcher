@@ -259,7 +259,7 @@
       "aboutTitle": "Sobre a Análise de Vaga",
       "aboutDescription": "Esta visualização mostra o quanto seu currículo corresponde à descrição da vaga. Palavras-chave do JD são destacadas em amarelo no seu currículo, ajudando você a ver quais habilidades e termos já estão cobertos.",
       "highlightedKeywordsTitle": "Palavras-Chave Destacadas",
-      "highlightedKeywordsDescriptionTemplate": "Palavras destacadas em __COLOR__ aparecem tanto na descrição da vaga quanto no seu currículo. Uma taxa de correspondência maior sugere melhor alinhamento com os requisitos da vaga.",
+      "highlightedKeywordsDescriptionTemplate": "Palavras destacadas em __COLOR__ aparecem tanto na descrição da vaga quanto no seu currículo. A sobreposição de palavras-chave mostra a cobertura literal dos termos, enquanto a pontuação estilo ATS dá mais peso às evidências em habilidades, resumo e títulos.",
       "highlightedKeywordsDescriptionPrefix": "Palavras destacadas em",
       "highlightColor": "amarelo",
       "highlightedKeywordsDescriptionSuffix": "aparecem tanto na descrição da vaga quanto no seu currículo. Uma taxa de correspondência maior sugere melhor alinhamento com os requisitos da vaga.",
@@ -274,7 +274,9 @@
       "stats": {
         "keywordsExtracted": "{count} palavras-chave extraídas",
         "matchesFound": "{count} correspondências encontradas",
-        "matchRateLabel": "Taxa de Correspondência:"
+        "matchRateLabel": "Taxa de Correspondência:",
+        "keywordOverlapLabel": "Sobreposição de palavras-chave:",
+        "atsScoreLabel": "Pontuação estilo ATS:"
       }
     },
     "genericItemForm": {

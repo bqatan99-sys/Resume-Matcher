@@ -259,7 +259,7 @@
       "aboutTitle": "About JD Match",
       "aboutDescription": "This view shows how well your resume matches the job description. Keywords from the JD are highlighted in yellow on your resume, helping you see which skills and terms are already covered.",
       "highlightedKeywordsTitle": "Highlighted Keywords",
-      "highlightedKeywordsDescriptionTemplate": "Words highlighted in __COLOR__ appear in both the job description and your resume. A higher match rate suggests better alignment with the job requirements.",
+      "highlightedKeywordsDescriptionTemplate": "Words highlighted in __COLOR__ appear in both the job description and your resume. Keyword overlap shows literal term coverage, while ATS-style score gives more weight to evidence in skills, summary, and titles.",
       "highlightedKeywordsDescriptionPrefix": "Words highlighted in",
       "highlightColor": "yellow",
       "highlightedKeywordsDescriptionSuffix": "appear in both the job description and your resume. A higher match rate suggests better alignment with the job requirements.",
@@ -274,7 +274,9 @@
       "stats": {
         "keywordsExtracted": "{count} keywords extracted",
         "matchesFound": "{count} matches found",
-        "matchRateLabel": "Match Rate:"
+        "matchRateLabel": "Match Rate:",
+        "keywordOverlapLabel": "Keyword Overlap:",
+        "atsScoreLabel": "ATS-style Score:"
       }
     },
     "genericItemForm": {

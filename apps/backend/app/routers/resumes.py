@@ -60,6 +60,7 @@ from app.services.cover_letter import (
     generate_resume_title,
 )
 from app.services.docx_export import generate_resume_docx_bytes
+from app.services.template_pdf import render_template_docx_pdf
 from app.prompts import DEFAULT_IMPROVE_PROMPT_ID, IMPROVE_PROMPT_OPTIONS
 
 
@@ -169,6 +170,99 @@ def _get_template_docx_base64(resume: dict[str, Any] | None) -> str | None:
         current = db.get_resume(parent_id)
 
     return None
+
+
+def _get_template_source_resume(resume: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Resolve the resume record that owns the active DOCX template."""
+    current = resume
+    visited: set[str] = set()
+    while current:
+        template_docx_base64 = current.get("template_docx_base64")
+        if template_docx_base64 and isinstance(template_docx_base64, str):
+            return current
+
+        parent_id = current.get("parent_id")
+        if not parent_id or parent_id in visited:
+            return None
+        visited.add(parent_id)
+        current = db.get_resume(parent_id)
+
+    return None
+
+
+def _truncate_words(text: str, limit: int) -> str:
+    words = text.split()
+    if limit <= 0 or len(words) <= limit:
+        return text.strip()
+    return " ".join(words[:limit]).strip()
+
+
+def _cap_text_to_reference(text: str, reference: str, extra_words: int = 4) -> str:
+    ref_words = len(reference.split())
+    if ref_words <= 0:
+        return text.strip()
+    return _truncate_words(text, ref_words + extra_words)
+
+
+def _compact_for_template_page(
+    original_data: dict[str, Any] | None, improved_data: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep template-backed resumes close to the original one-page content budget."""
+    if not original_data:
+        return improved_data
+
+    result = copy.deepcopy(improved_data)
+
+    original_summary = str(original_data.get("summary") or "").strip()
+    summary = str(result.get("summary") or "").strip()
+    if summary and original_summary:
+        result["summary"] = _cap_text_to_reference(summary, original_summary, extra_words=3)
+
+    for section in ("workExperience", "personalProjects"):
+        original_items = original_data.get(section) or []
+        result_items = result.get(section) or []
+        for index, item in enumerate(result_items):
+            if index >= len(original_items):
+                continue
+            original_item = original_items[index]
+            original_lines = [
+                str(line).strip()
+                for line in (original_item.get("description") or [])
+                if str(line).strip()
+            ]
+            result_lines = [
+                str(line).strip() for line in (item.get("description") or []) if str(line).strip()
+            ]
+            if not result_lines:
+                continue
+
+            if original_lines:
+                capped_lines: list[str] = []
+                for line_index, line in enumerate(result_lines[: len(original_lines)]):
+                    reference = original_lines[min(line_index, len(original_lines) - 1)]
+                    capped_lines.append(_cap_text_to_reference(line, reference, extra_words=4))
+                item["description"] = capped_lines
+            else:
+                item["description"] = result_lines[:1]
+
+    original_education = original_data.get("education") or []
+    result_education = result.get("education") or []
+    for index, item in enumerate(result_education):
+        if index >= len(original_education):
+            continue
+        original_item = original_education[index]
+        original_degree = str(original_item.get("degree") or "").strip()
+        degree = str(item.get("degree") or "").strip()
+        if degree and original_degree:
+            item["degree"] = _cap_text_to_reference(degree, original_degree, extra_words=3)
+        original_description = str(original_item.get("description") or "").strip()
+        description = str(item.get("description") or "").strip()
+        if description and original_description:
+            item["description"] = _cap_text_to_reference(
+                description, original_description, extra_words=3
+            )
+
+    return result
 
 
 def _has_month(date_str: str) -> bool:
@@ -826,6 +920,8 @@ async def _improve_preview_flow(
         improved_data = restore_dates_from_markdown(improved_data, original_markdown)
     improved_data = _preserve_original_skills(original_resume_data, improved_data)
     improved_data = _protect_custom_sections(original_resume_data, improved_data)
+    if _get_template_docx_base64(resume):
+        improved_data = _compact_for_template_page(original_resume_data, improved_data)
 
     # Multi-pass refinement: keyword injection, AI phrase removal, alignment validation
     refinement_stats: RefinementStats | None = None
@@ -966,6 +1062,11 @@ async def improve_resume_confirm_endpoint(
     detail = "Failed to confirm resume. Please try again."
     try:
         improved_data = request.improved_data.model_dump()
+        template_source_resume = _get_template_source_resume(resume)
+        if template_source_resume:
+            improved_data = _compact_for_template_page(
+                _get_original_resume_data(template_source_resume), improved_data
+            )
         improved_text = json.dumps(improved_data, indent=2)
         # NOTE: This endpoint relies on preview-hash validation to ensure the payload matches a prior preview.
         # Stronger guarantees would require server-side preview storage or re-running the improvement.
@@ -1444,14 +1545,41 @@ async def download_resume_pdf(
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    if _get_template_docx_base64(resume):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "This resume preserves exact formatting through DOCX export. "
-                "Use the DOCX download instead of PDF."
-            ),
-        )
+    template_source_resume = _get_template_source_resume(resume)
+    template_docx_base64 = (
+        template_source_resume.get("template_docx_base64")
+        if template_source_resume
+        else None
+    )
+    if template_docx_base64:
+        processed_data = resume.get("processed_data")
+        if not processed_data:
+            raise HTTPException(
+                status_code=400, detail="Resume has no structured data to export"
+            )
+
+        export_data = copy.deepcopy(processed_data)
+        if template_source_resume and template_source_resume.get("processed_data"):
+            export_data = _compact_for_template_page(
+                template_source_resume.get("processed_data") or {},
+                export_data,
+            )
+
+        try:
+            docx_bytes = generate_resume_docx_bytes(
+                export_data,
+                template_bytes=base64.b64decode(template_docx_base64),
+            )
+            pdf_bytes = await render_template_docx_pdf(
+                docx_bytes,
+                filename_stem=f"resume_{resume_id}",
+                page_size=pageSize,
+            )
+        except PDFRenderError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+        headers = {"Content-Disposition": f'attachment; filename="resume_{resume_id}.pdf"'}
+        return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
     # Build print URL with all settings
     params = (
@@ -1505,10 +1633,19 @@ async def download_resume_docx(resume_id: str) -> Response:
     if not processed_data:
         raise HTTPException(status_code=400, detail="Resume has no structured data to export")
 
-    template_docx_base64 = _get_template_docx_base64(resume)
+    template_source_resume = _get_template_source_resume(resume)
+    template_docx_base64 = (
+        template_source_resume.get("template_docx_base64")
+        if template_source_resume
+        else None
+    )
     template_bytes = (
         base64.b64decode(template_docx_base64) if template_docx_base64 else None
     )
+    if template_source_resume:
+        processed_data = _compact_for_template_page(
+            _get_original_resume_data(template_source_resume), processed_data
+        )
     docx_bytes = generate_resume_docx_bytes(
         normalize_resume_data(copy.deepcopy(processed_data)),
         template_bytes=template_bytes,

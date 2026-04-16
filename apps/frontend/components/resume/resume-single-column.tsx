@@ -4,6 +4,7 @@ import type {
   ResumeData,
   SectionMeta,
   AdditionalSectionLabels,
+  ContactDisplayOverrides,
 } from '@/components/dashboard/resume-component';
 import { getSortedSections } from '@/lib/utils/section-helpers';
 import { formatDateRange } from '@/lib/utils';
@@ -16,6 +17,7 @@ interface ResumeSingleColumnProps {
   data: ResumeData;
   showContactIcons?: boolean;
   additionalSectionLabels?: Partial<AdditionalSectionLabels>;
+  contactDisplayOverrides?: ContactDisplayOverrides;
 }
 
 /**
@@ -30,6 +32,7 @@ export const ResumeSingleColumn: React.FC<ResumeSingleColumnProps> = ({
   data,
   showContactIcons = false,
   additionalSectionLabels,
+  contactDisplayOverrides,
 }) => {
   const { personalInfo, summary, workExperience, education, personalProjects, additional } = data;
 
@@ -67,7 +70,13 @@ export const ResumeSingleColumn: React.FC<ResumeSingleColumnProps> = ({
 
     let displayText = value;
     if (isLink && (label === 'LinkedIn' || label === 'GitHub' || label === 'Website')) {
-      displayText = value.replace(/^https?:\/\//, '').replace(/^www\./, '');
+      const overrideMap: Record<string, string | undefined> = {
+        Website: contactDisplayOverrides?.website,
+        LinkedIn: contactDisplayOverrides?.linkedin,
+        GitHub: contactDisplayOverrides?.github,
+      };
+      displayText =
+        overrideMap[label] || value.replace(/^https?:\/\//, '').replace(/^www\./, '');
     }
 
     return (

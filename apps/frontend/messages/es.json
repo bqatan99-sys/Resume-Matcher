@@ -262,7 +262,7 @@
       "highlightedKeywordsDescriptionPrefix": "Las palabras resaltadas en",
       "highlightColor": "amarillo",
       "highlightedKeywordsDescriptionSuffix": "aparecen tanto en la descripción del puesto como en tu currículum. Una mayor coincidencia sugiere mejor alineación con los requisitos.",
-      "highlightedKeywordsDescriptionTemplate": "Las palabras resaltadas en __COLOR__ aparecen tanto en la descripción del puesto como en tu currículum. Una mayor coincidencia sugiere mejor alineación con los requisitos.",
+      "highlightedKeywordsDescriptionTemplate": "Las palabras resaltadas en __COLOR__ aparecen tanto en la descripción del puesto como en tu currículum. La superposición de palabras clave muestra la cobertura literal de términos, mientras que la puntuación estilo ATS da más peso a la evidencia en habilidades, resumen y títulos.",
       "tipsTitle": "Consejos",
       "tips": {
         "items": {
@@ -274,7 +274,9 @@
       "stats": {
         "keywordsExtracted": "{count} palabras clave extraídas",
         "matchesFound": "{count} coincidencias encontradas",
-        "matchRateLabel": "Tasa de coincidencia:"
+        "matchRateLabel": "Tasa de coincidencia:",
+        "keywordOverlapLabel": "Superposición de palabras clave:",
+        "atsScoreLabel": "Puntuación estilo ATS:"
       }
     },
     "genericItemForm": {

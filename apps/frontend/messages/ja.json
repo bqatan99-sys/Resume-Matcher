@@ -259,7 +259,7 @@
       "aboutTitle": "JD一致について",
       "aboutDescription": "このビューでは、履歴書が求人内容（JD）にどれだけ一致しているかを確認できます。JDのキーワードが履歴書内で黄色にハイライトされ、すでに含まれているスキルや用語が分かります。",
       "highlightedKeywordsTitle": "ハイライトされたキーワード",
-      "highlightedKeywordsDescriptionTemplate": "__COLOR__でハイライトされた単語は、求人内容と履歴書の両方に含まれます。一致率が高いほど、要件への適合度が高いことを示します。",
+      "highlightedKeywordsDescriptionTemplate": "__COLOR__でハイライトされた単語は、求人内容と履歴書の両方に含まれます。キーワード重複率は用語の文字どおりの一致を示し、ATS風スコアはスキル、要約、役職での根拠をより重く評価します。",
       "highlightedKeywordsDescriptionPrefix": "次の色でハイライトされた単語",
       "highlightColor": "黄色",
       "highlightedKeywordsDescriptionSuffix": "は、求人内容と履歴書の両方に含まれます。一致率が高いほど、要件への適合度が高いことを示します。",
@@ -274,7 +274,9 @@
       "stats": {
         "keywordsExtracted": "抽出キーワード数: {count}",
         "matchesFound": "一致数: {count}",
-        "matchRateLabel": "一致率:"
+        "matchRateLabel": "一致率:",
+        "keywordOverlapLabel": "キーワード重複率:",
+        "atsScoreLabel": "ATS風スコア:"
       }
     },
     "genericItemForm": {

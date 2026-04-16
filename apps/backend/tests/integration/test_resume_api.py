@@ -228,9 +228,11 @@ class TestDownloadResumePdf:
     """GET /api/v1/resumes/{resume_id}/pdf"""
 
     @patch("app.routers.resumes.db")
-    async def test_download_resume_pdf_blocks_template_backed_resume(
-        self, mock_db, client, mock_resume_record
+    @patch("app.routers.resumes.render_template_docx_pdf", new_callable=AsyncMock)
+    async def test_download_resume_pdf_uses_template_backed_export(
+        self, mock_render_template_pdf, mock_db, client, mock_resume_record
     ):
+        mock_render_template_pdf.return_value = b"%PDF-template"
         mock_db.get_resume.return_value = {
             **mock_resume_record,
             "template_docx_base64": "ZmFrZS10ZW1wbGF0ZQ==",
@@ -238,8 +240,10 @@ class TestDownloadResumePdf:
         async with client:
             resp = await client.get("/api/v1/resumes/res-123/pdf")
 
-        assert resp.status_code == 409
-        assert "DOCX" in resp.text
+        assert resp.status_code == 200
+        assert resp.content == b"%PDF-template"
+        assert resp.headers["content-type"] == "application/pdf"
+        mock_render_template_pdf.assert_awaited_once()
 
 
 class TestAttachResumeTemplate:
@@ -262,6 +266,8 @@ class TestAttachResumeTemplate:
 
         assert resp.status_code == 200
         assert "attached successfully" in resp.json()["message"]
+        update_payload = mock_db.update_resume.call_args.args[1]
+        assert "template_docx_base64" in update_payload
 
     @patch("app.routers.resumes.db")
     async def test_attach_resume_template_rejects_non_docx(self, mock_db, client, mock_resume_record):

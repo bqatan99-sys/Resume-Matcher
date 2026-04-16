@@ -7,6 +7,7 @@ from typing import Any
 from docx import Document
 from docx.document import Document as DocumentType
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
@@ -16,6 +17,20 @@ NAME_FONT_SIZE = Pt(16)
 CONTACT_FONT_SIZE = Pt(9)
 BODY_FONT_SIZE = Pt(10)
 SECTION_FONT_SIZE = Pt(10)
+TOOL_SKILL_HINTS = {
+    "sql",
+    "python",
+    "numpy",
+    "pandas",
+    "data visualization",
+    "lovable",
+    "bolt.new",
+    "automation",
+    "api integration",
+    "jira",
+    "figma",
+    "prototyping",
+}
 
 
 def _set_run_font(run: Any, size: Pt, *, bold: bool = False, italic: bool = False) -> None:
@@ -119,6 +134,10 @@ def _pick_run(paragraph: Any, *, bold: bool | None = None, italic: bool | None =
     return runs[0]
 
 
+def _paragraph_text(paragraph: Any) -> str:
+    return "".join(run.text for run in paragraph.runs).strip()
+
+
 def _clone_paragraph_shell(paragraph: Any) -> Any:
     cloned = deepcopy(paragraph._p)
     for child in list(cloned):
@@ -158,6 +177,53 @@ def _append_simple_paragraph(body: Any, paragraph: Any, text: str, *, bold: bool
     _append_paragraph_xml(body, paragraph_xml)
 
 
+def _append_hyperlink_xml(paragraph_xml: Any, paragraph_part: Any, source_run: Any, text: str, url: str) -> None:
+    rel_id = paragraph_part.relate_to(url, RT.HYPERLINK, is_external=True)
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), rel_id)
+    hyperlink.append(_clone_run_xml(source_run, text=text))
+    paragraph_xml.append(hyperlink)
+
+
+def _normalize_url(value: str, kind: str = "web") -> str:
+    text = value.strip()
+    if not text:
+        return ""
+    lower = text.lower()
+    if kind == "email":
+        return text if lower.startswith("mailto:") else f"mailto:{text}"
+    if kind == "phone":
+        return text if lower.startswith("tel:") else f"tel:{text}"
+    return text if lower.startswith(("http://", "https://")) else f"https://{text}"
+
+
+def _build_contact_segments(
+    personal_info: dict[str, Any],
+    link_labels: dict[str, str] | None = None,
+) -> list[tuple[str, str | None]]:
+    segments: list[tuple[str, str | None]] = []
+    location = (personal_info.get("location") or "").strip()
+    email = (personal_info.get("email") or "").strip()
+    phone = (personal_info.get("phone") or "").strip()
+    linkedin = (personal_info.get("linkedin") or "").strip()
+    website = (personal_info.get("website") or "").strip()
+    github = (personal_info.get("github") or "").strip()
+
+    if location:
+        segments.append((location, None))
+    if phone:
+        segments.append((phone, _normalize_url(phone, "phone")))
+    if email:
+        segments.append((email, _normalize_url(email, "email")))
+    if linkedin:
+        segments.append(((link_labels or {}).get("linkedin") or linkedin, _normalize_url(linkedin)))
+    if website:
+        segments.append(((link_labels or {}).get("website") or website, _normalize_url(website)))
+    if github:
+        segments.append(((link_labels or {}).get("github") or github, _normalize_url(github)))
+    return segments
+
+
 def _append_row_paragraph(
     body: Any,
     paragraph: Any,
@@ -181,6 +247,123 @@ def _append_blank_paragraph(body: Any, paragraph: Any | None) -> None:
     if paragraph is None:
         return
     _append_paragraph_xml(body, deepcopy(paragraph._p))
+
+
+def _classify_contact_link(target: str, text: str) -> str | None:
+    lower_target = target.lower()
+    lower_text = text.lower()
+    if "linkedin" in lower_target or "linkedin" in lower_text:
+        return "linkedin"
+    if "github" in lower_target or "github" in lower_text:
+        return "github"
+    if lower_target.startswith("mailto:"):
+        return "email"
+    if lower_target.startswith("tel:"):
+        return "phone"
+    return "website"
+
+
+def _extract_contact_link_labels(paragraph: Any) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    rels = paragraph.part.rels
+    for child in paragraph._p:
+        if child.tag != qn("w:hyperlink"):
+            continue
+        rel_id = child.get(qn("r:id"))
+        if not rel_id or rel_id not in rels:
+            continue
+        target = getattr(rels[rel_id], "target_ref", "") or ""
+        text = "".join(node.text or "" for node in child.findall(".//w:t", {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"})).strip()
+        if not text:
+            continue
+        key = _classify_contact_link(target, text)
+        if key and key not in labels:
+            labels[key] = text
+    return labels
+
+
+def _extract_skill_rows(paragraphs: list[Any], skills_idx: int) -> list[Any]:
+    rows: list[Any] = []
+    for paragraph in paragraphs[skills_idx + 1 :]:
+        text = _paragraph_text(paragraph)
+        normalized = _normalize_text(text)
+        if normalized in {"LANGUAGES", "AWARDS", "LINKS", "CERTIFICATIONS"}:
+            break
+        if text:
+            rows.append(paragraph)
+    return rows
+
+
+def _split_technical_skills(skills: list[str]) -> tuple[list[str], list[str]]:
+    product: list[str] = []
+    tools: list[str] = []
+    for skill in skills:
+        clean = skill.strip()
+        if not clean:
+            continue
+        if clean.lower() in TOOL_SKILL_HINTS:
+            tools.append(clean)
+        else:
+            product.append(clean)
+    if not product and tools:
+        return tools, []
+    if not tools and product:
+        return product, []
+    return product, tools
+
+
+def _build_template_skill_lines(
+    additional: dict[str, Any], template_rows: list[Any]
+) -> list[str]:
+    labels = []
+    for row in template_rows:
+        text = _paragraph_text(row)
+        label = text.split(":", 1)[0].strip() if ":" in text else text.strip()
+        if label:
+            labels.append(label)
+
+    technical_skills = [str(v).strip() for v in (additional.get("technicalSkills") or []) if str(v).strip()]
+    languages = [str(v).strip() for v in (additional.get("languages") or []) if str(v).strip()]
+    certifications = [str(v).strip() for v in (additional.get("certificationsTraining") or []) if str(v).strip()]
+    awards = [str(v).strip() for v in (additional.get("awards") or []) if str(v).strip()]
+
+    if not labels:
+        labels = ["Technical Skills", "Languages", "Certifications", "Awards"]
+
+    if {label.lower() for label in labels[:3]} == {"product", "data & tools", "certifications"}:
+        product_skills, tool_skills = _split_technical_skills(technical_skills)
+        certification_parts = []
+        if certifications:
+            certification_parts.extend(certifications)
+        if languages:
+            certification_parts.append(f"Languages: {', '.join(languages)}")
+        if awards:
+            certification_parts.append(f"Awards: {', '.join(awards)}")
+        mapped = [
+            ("Product", product_skills),
+            ("Data & Tools", tool_skills),
+            ("Certifications", certification_parts),
+        ]
+        return [f"{label}: {' | '.join(values)}" for label, values in mapped if values]
+
+    generic_rows = [
+        ("Technical Skills", technical_skills),
+        ("Languages", languages),
+        ("Certifications", certifications),
+        ("Awards", awards),
+    ]
+    generic_rows = [(label, values) for label, values in generic_rows if values]
+    if len(generic_rows) <= len(labels):
+        return [f"{label}: {' | '.join(values)}" for label, values in generic_rows]
+
+    head = generic_rows[: max(0, len(labels) - 1)]
+    tail = generic_rows[max(0, len(labels) - 1) :]
+    merged_tail = " | ".join(f"{label}: {', '.join(values)}" for label, values in tail)
+    lines = [f"{label}: {' | '.join(values)}" for label, values in head]
+    if merged_tail:
+        final_label = labels[min(len(labels) - 1, len(head))]
+        lines.append(f"{final_label}: {merged_tail}")
+    return lines
 
 
 def _extract_template_archetypes(template_bytes: bytes) -> dict[str, Any]:
@@ -217,11 +400,12 @@ def _extract_template_archetypes(template_bytes: bytes) -> dict[str, Any]:
         projects_idx,
     )
     project_row = _next_nonempty(paragraphs, projects_idx + 1, skills_idx)
-    skills_row = _next_nonempty(paragraphs, skills_idx + 1)
+    skills_rows = _extract_skill_rows(paragraphs, skills_idx)
 
     return {
         "name": name_para,
         "contact": contact_para,
+        "contact_link_labels": _extract_contact_link_labels(contact_para) if contact_para else {},
         "blank": _find_blank(paragraphs, 0) or _find_blank(paragraphs, summary_idx + 1),
         "summary_heading": paragraphs[summary_idx],
         "summary_body": summary_body,
@@ -235,31 +419,12 @@ def _extract_template_archetypes(template_bytes: bytes) -> dict[str, Any]:
         "projects_heading": paragraphs[projects_idx],
         "project_row": project_row,
         "skills_heading": paragraphs[skills_idx],
-        "skills_row": skills_row,
+        "skills_rows": skills_rows,
     }
 
 
 def _build_contact_line(personal_info: dict[str, Any]) -> str:
-    parts: list[str] = []
-    location = (personal_info.get("location") or "").strip()
-    email = (personal_info.get("email") or "").strip()
-    phone = (personal_info.get("phone") or "").strip()
-    linkedin = (personal_info.get("linkedin") or "").strip()
-    website = (personal_info.get("website") or "").strip()
-    github = (personal_info.get("github") or "").strip()
-
-    if location:
-        parts.append(location)
-    if phone:
-        parts.append(phone)
-    if email:
-        parts.append(email)
-    if linkedin:
-        parts.append("LinkedIn")
-    if website:
-        parts.append("Portfolio")
-    if github:
-        parts.append("GitHub")
+    parts = [text for text, _url in _build_contact_segments(personal_info)]
     return " \u2022 ".join(parts)
 
 
@@ -274,15 +439,44 @@ def _coerce_lines(value: Any) -> list[str]:
     return [str(value).strip()]
 
 
+def _join_inline_text(parts: list[str]) -> str:
+    return " ".join(part.strip() for part in parts if part.strip()).strip()
+
+
+def _project_link_entries(project: dict[str, Any]) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    github = str(project.get("github") or "").strip()
+    website = str(project.get("website") or "").strip()
+    if github:
+        entries.append(("GitHub", _normalize_url(github)))
+    if website:
+        entries.append(("Website", _normalize_url(website)))
+    return entries
+
+
 def _generate_resume_docx_from_template(resume_data: dict[str, Any], template_bytes: bytes) -> bytes:
     document, body, sect_pr, _content_width = _prepare_document(template_bytes)
     archetypes = _extract_template_archetypes(template_bytes)
     personal_info = resume_data.get("personalInfo") or {}
 
     _append_simple_paragraph(body, archetypes["name"], (personal_info.get("name") or "").strip().upper(), bold=True)
-    contact_line = _build_contact_line(personal_info)
-    if contact_line:
-        _append_simple_paragraph(body, archetypes["contact"], contact_line)
+    contact_segments = _build_contact_segments(
+        personal_info,
+        link_labels=archetypes.get("contact_link_labels") or None,
+    )
+    if contact_segments:
+        paragraph_xml = _clone_paragraph_shell(archetypes["contact"])
+        link_run = _pick_run(archetypes["contact"])
+        first = True
+        for text, url in contact_segments:
+            if not first:
+                paragraph_xml.append(_clone_run_xml(link_run, text=" \u2022 "))
+            first = False
+            if url:
+                _append_hyperlink_xml(paragraph_xml, archetypes["contact"].part, link_run, text, url)
+            else:
+                paragraph_xml.append(_clone_run_xml(link_run, text=text))
+        _append_paragraph_xml(body, paragraph_xml)
     _append_blank_paragraph(body, archetypes["blank"])
 
     _append_simple_paragraph(body, archetypes["summary_heading"], "PROFESSIONAL SUMMARY", bold=True)
@@ -333,34 +527,34 @@ def _generate_resume_docx_from_template(resume_data: dict[str, Any], template_by
         _append_blank_paragraph(body, archetypes["blank"])
         for project in projects:
             name = str(project.get("name") or "").strip()
-            detail_parts = _coerce_lines(project.get("description"))
-            years = str(project.get("years") or "").strip()
-            if years:
-                detail_parts.append(years)
-            detail_text = " | ".join(detail_parts)
-            text = name
-            if name and detail_text:
-                text = f"{name}: {detail_text}"
-            elif detail_text:
-                text = detail_text
-            if text:
-                _append_simple_paragraph(body, archetypes["project_row"], text)
+            detail_text = _join_inline_text(_coerce_lines(project.get("description")))
+            project_links = _project_link_entries(project)
+            if name or detail_text or project_links:
+                paragraph_xml = _clone_paragraph_shell(archetypes["project_row"])
+                bold_run = _pick_run(archetypes["project_row"], bold=True)
+                normal_run = _pick_run(archetypes["project_row"], bold=False)
+                if name:
+                    paragraph_xml.append(_clone_run_xml(bold_run, text=name))
+                if detail_text:
+                    prefix = ": " if name else ""
+                    paragraph_xml.append(_clone_run_xml(normal_run, text=f"{prefix}{detail_text}"))
+                for idx, (text, url) in enumerate(project_links):
+                    separator = " | " if name or detail_text or idx > 0 else ""
+                    if separator:
+                        paragraph_xml.append(_clone_run_xml(normal_run, text=separator))
+                    _append_hyperlink_xml(paragraph_xml, archetypes["project_row"].part, normal_run, text, url)
+                _append_paragraph_xml(body, paragraph_xml)
         _append_blank_paragraph(body, archetypes["blank"])
 
     additional = resume_data.get("additional") or {}
-    rows = [
-        ("Technical Skills", additional.get("technicalSkills") or []),
-        ("Languages", additional.get("languages") or []),
-        ("Certifications", additional.get("certificationsTraining") or []),
-        ("Awards", additional.get("awards") or []),
-    ]
-    rows = [(label, values) for label, values in rows if values]
-    if rows:
-        _append_simple_paragraph(body, archetypes["skills_heading"], "SKILLS", bold=True)
+    skill_lines = _build_template_skill_lines(additional, archetypes.get("skills_rows") or [])
+    if skill_lines:
+        _append_simple_paragraph(body, archetypes["skills_heading"], _paragraph_text(archetypes["skills_heading"]), bold=True)
         _append_blank_paragraph(body, archetypes["blank"])
-        for label, values in rows:
-            line = f"{label}: {' | '.join(str(value).strip() for value in values if str(value).strip())}"
-            _append_simple_paragraph(body, archetypes["skills_row"], line)
+        skill_row = (archetypes.get("skills_rows") or [None])[0]
+        if skill_row is not None:
+            for line in skill_lines:
+                _append_simple_paragraph(body, skill_row, line)
 
     if sect_pr is not None:
         body.append(sect_pr)
@@ -387,28 +581,8 @@ def _add_name_header(document: DocumentType, personal_info: dict[str, Any]) -> N
 
 
 def _add_contact_header(document: DocumentType, personal_info: dict[str, Any]) -> None:
-    parts: list[str] = []
-    location = (personal_info.get("location") or "").strip()
-    email = (personal_info.get("email") or "").strip()
-    phone = (personal_info.get("phone") or "").strip()
-    linkedin = (personal_info.get("linkedin") or "").strip()
-    website = (personal_info.get("website") or "").strip()
-    github = (personal_info.get("github") or "").strip()
-
-    if location:
-        parts.append(location)
-    if phone:
-        parts.append(phone)
-    if email:
-        parts.append(email)
-    if linkedin:
-        parts.append("LinkedIn")
-    if website:
-        parts.append("Portfolio")
-    if github:
-        parts.append("GitHub")
-
-    if not parts:
+    segments = _build_contact_segments(personal_info)
+    if not segments:
         return
 
     paragraph = document.add_paragraph()
@@ -418,8 +592,23 @@ def _add_contact_header(document: DocumentType, personal_info: dict[str, Any]) -
     paragraph.paragraph_format.line_spacing = 1
     _set_bottom_border(paragraph, color="FFFFFF", size="6")
 
-    run = paragraph.add_run(" \u2022 ".join(parts))
-    _set_run_font(run, CONTACT_FONT_SIZE)
+    first = True
+    for text, url in segments:
+        if not first:
+            sep = paragraph.add_run(" \u2022 ")
+            _set_run_font(sep, CONTACT_FONT_SIZE)
+        first = False
+        if url:
+            rel_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
+            hyperlink = OxmlElement("w:hyperlink")
+            hyperlink.set(qn("r:id"), rel_id)
+            run = paragraph.add_run(text)
+            _set_run_font(run, CONTACT_FONT_SIZE)
+            hyperlink.append(run._r)
+            paragraph._p.append(hyperlink)
+        else:
+            run = paragraph.add_run(text)
+            _set_run_font(run, CONTACT_FONT_SIZE)
 
 
 def _add_spacer(document: DocumentType, size: int = 2) -> None:
@@ -553,21 +742,28 @@ def _add_projects_section(document: DocumentType, projects: list[dict[str, Any]]
             run = paragraph.add_run(name)
             _set_run_font(run, BODY_FONT_SIZE, bold=True)
 
-        details = [
-            str(item).strip()
-            for item in (project.get("description") or [])
-            if str(item).strip()
-        ]
-        years = str(project.get("years") or "").strip()
-        if years:
-            details.append(years)
-        detail_text = " | ".join(details)
+        detail_text = _join_inline_text(
+            [str(item).strip() for item in (project.get("description") or []) if str(item).strip()]
+        )
         if detail_text:
             if name:
                 run = paragraph.add_run(": ")
                 _set_run_font(run, BODY_FONT_SIZE)
             run = paragraph.add_run(detail_text)
             _set_run_font(run, BODY_FONT_SIZE)
+        link_entries = _project_link_entries(project)
+        for index, (text, url) in enumerate(link_entries):
+            separator = " | " if (name or detail_text or index > 0) else ""
+            if separator:
+                run = paragraph.add_run(separator)
+                _set_run_font(run, BODY_FONT_SIZE)
+            rel_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
+            hyperlink = OxmlElement("w:hyperlink")
+            hyperlink.set(qn("r:id"), rel_id)
+            run = paragraph.add_run(text)
+            _set_run_font(run, BODY_FONT_SIZE)
+            hyperlink.append(run._r)
+            paragraph._p.append(hyperlink)
     _add_spacer(document)
 
 

@@ -262,7 +262,7 @@
       "highlightedKeywordsDescriptionPrefix": "被标记为",
       "highlightColor": "黄色",
       "highlightedKeywordsDescriptionSuffix": "的词同时出现在职位描述与简历中。匹配度越高，通常意味着与岗位要求的契合度更好。",
-      "highlightedKeywordsDescriptionTemplate": "被标记为__COLOR__的词同时出现在职位描述与简历中。匹配度越高，通常意味着与岗位要求的契合度更好。",
+      "highlightedKeywordsDescriptionTemplate": "被标记为__COLOR__的词同时出现在职位描述与简历中。关键词重合率反映的是字面术语覆盖，而 ATS 风格分数会更看重技能、摘要和标题中的证据。",
       "tipsTitle": "提示",
       "tips": {
         "items": {
@@ -274,7 +274,9 @@
       "stats": {
         "keywordsExtracted": "已提取 {count} 个关键词",
         "matchesFound": "已匹配 {count} 处",
-        "matchRateLabel": "匹配率："
+        "matchRateLabel": "匹配率：",
+        "keywordOverlapLabel": "关键词重合率：",
+        "atsScoreLabel": "ATS 风格分数："
       }
     },
     "genericItemForm": {

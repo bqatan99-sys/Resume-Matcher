@@ -81,6 +81,12 @@ export interface ResumeFallbackLabels {
   name: string;
 }
 
+export interface ContactDisplayOverrides {
+  website?: string;
+  linkedin?: string;
+  github?: string;
+}
+
 // Section Type for dynamic sections
 export type SectionType = 'personalInfo' | 'text' | 'itemList' | 'stringList';
 
@@ -132,6 +138,7 @@ interface ResumeProps {
   additionalSectionLabels?: Partial<AdditionalSectionLabels>;
   sectionHeadings?: Partial<ResumeSectionHeadings>;
   fallbackLabels?: Partial<ResumeFallbackLabels>;
+  contactDisplayOverrides?: ContactDisplayOverrides;
 }
 
 /**
@@ -153,6 +160,7 @@ const Resume: React.FC<ResumeProps> = ({
   additionalSectionLabels,
   sectionHeadings,
   fallbackLabels,
+  contactDisplayOverrides,
 }) => {
   // Merge provided settings with defaults
   const mergedSettings: TemplateSettings = {
@@ -181,6 +189,7 @@ const Resume: React.FC<ResumeProps> = ({
           data={resumeData}
           showContactIcons={mergedSettings.showContactIcons}
           additionalSectionLabels={additionalSectionLabels}
+          contactDisplayOverrides={contactDisplayOverrides}
         />
       )}
       {mergedSettings.template === 'swiss-two-column' && (
