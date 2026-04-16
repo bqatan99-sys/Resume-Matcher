@@ -60,16 +60,16 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 
 const buildInitialData = (t: Translate): ResumeData => ({
   personalInfo: {
-    name: t('builder.personalInfoForm.placeholders.name'),
-    title: t('builder.personalInfoForm.placeholders.title'),
-    email: t('builder.personalInfoForm.placeholders.email'),
-    phone: t('builder.personalInfoForm.placeholders.phone'),
-    location: t('builder.personalInfoForm.placeholders.location'),
-    website: t('builder.personalInfoForm.placeholders.website'),
-    linkedin: t('builder.personalInfoForm.placeholders.linkedin'),
-    github: t('builder.personalInfoForm.placeholders.github'),
+    name: '',
+    title: '',
+    email: '',
+    phone: '',
+    location: '',
+    website: '',
+    linkedin: '',
+    github: '',
   },
-  summary: t('builder.placeholders.summary'),
+  summary: '',
   workExperience: [],
   education: [],
   personalProjects: [],
@@ -146,6 +146,8 @@ const ResumeBuilderContent = () => {
   const [isCopied, setIsCopied] = useState(false);
   const [resumeTitle, setResumeTitle] = useState<string | null>(null);
   const [hasTemplateDocx, setHasTemplateDocx] = useState(false);
+  const [showEditableTemplatePreview, setShowEditableTemplatePreview] = useState(false);
+  const [templatePreviewNonce, setTemplatePreviewNonce] = useState(0);
 
   // On-demand generation state
   const [isTailoredResume, setIsTailoredResume] = useState(false);
@@ -245,6 +247,113 @@ const ResumeBuilderContent = () => {
     [resumeData, t]
   );
 
+  const templateAwareResumeDataForPreview = useMemo(() => {
+    const baseData = localizedResumeDataForPreview;
+    if (!baseData || !hasTemplateDocx) return baseData;
+
+    const technicalSkills = baseData.additional?.technicalSkills || [];
+    const dataToolHints = new Set([
+      'sql',
+      'python',
+      'numpy',
+      'pandas',
+      'data visualization',
+      'lovable',
+      'bolt.new',
+      'notion',
+      'asana',
+      'automation',
+      'api integration',
+    ]);
+    const productOrder = [
+      'agile scrum',
+      'prd writing',
+      'user story mapping',
+      'lean canvas',
+      'figma',
+      'dogfooding',
+      'a/b testing',
+      'jira',
+      'prototyping',
+    ];
+    const toolOrder = [
+      'sql',
+      'python',
+      'numpy',
+      'pandas',
+      'data visualization',
+      'tableau',
+      'matplotlib',
+      'excel',
+      'lovable',
+      'bolt.new',
+      'notion',
+      'asana',
+      'automation',
+      'api integration',
+    ];
+    const sortByPreferredOrder = (skills: string[], preferred: string[]) =>
+      [...skills].sort((a, b) => {
+        const aKey = a.toLowerCase();
+        const bKey = b.toLowerCase();
+        const aIndex = preferred.indexOf(aKey);
+        const bIndex = preferred.indexOf(bKey);
+        if (aIndex === -1 && bIndex === -1) return aKey.localeCompare(bKey);
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      });
+    const productSkills = sortByPreferredOrder(
+      technicalSkills.filter((skill) => !dataToolHints.has(skill.toLowerCase())),
+      productOrder
+    );
+    const dataToolSkills = sortByPreferredOrder(
+      technicalSkills.filter((skill) => dataToolHints.has(skill.toLowerCase())),
+      toolOrder
+    );
+
+    return {
+      ...baseData,
+      sectionMeta: (baseData.sectionMeta || []).map((section) => {
+        if (!section.isDefault) return section;
+        const displayNameMap: Record<string, string> = {
+          summary: 'PROFESSIONAL SUMMARY',
+          workExperience: 'EXPERIENCE',
+          education: 'EDUCATION',
+          personalProjects: 'PROJECTS',
+          additional: 'SKILLS',
+        };
+        return {
+          ...section,
+          displayName: displayNameMap[section.key] || section.displayName,
+        };
+      }),
+      additional: {
+        ...baseData.additional,
+        technicalSkills: productSkills,
+        languages: dataToolSkills,
+        certificationsTraining: [],
+        awards: baseData.additional?.awards || [],
+      },
+      personalProjects: (baseData.personalProjects || []).map((project) => ({
+        ...project,
+        role: '',
+        years: '',
+        description:
+          project.description && project.description.length > 0
+            ? [project.description.join(' ')]
+            : project.description,
+      })),
+    };
+  }, [hasTemplateDocx, localizedResumeDataForPreview]);
+
+  const templatePreviewUrl = useMemo(() => {
+    if (!hasTemplateDocx || !resumeId) return null;
+    const baseUrl = getResumePdfUrl(resumeId, templateSettings, uiLanguage, true);
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}cacheBust=${templatePreviewNonce}`;
+  }, [hasTemplateDocx, resumeId, templateSettings, templatePreviewNonce, uiLanguage]);
+
   // Load template settings from localStorage on mount
   useEffect(() => {
     const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -305,6 +414,7 @@ const ResumeBuilderContent = () => {
           if (data.processed_resume) {
             setResumeData(data.processed_resume as ResumeData);
             setLastSavedData(data.processed_resume as ResumeData);
+            setTemplatePreviewNonce((value) => value + 1);
             setLoadingState('loaded');
             return;
           }
@@ -418,6 +528,7 @@ const ResumeBuilderContent = () => {
       setLastSavedData(nextData);
       setHasUnsavedChanges(false);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextData));
+      setTemplatePreviewNonce((value) => value + 1);
     } catch (error) {
       console.error('Failed to save resume:', error);
       showNotification(t('builder.alerts.saveFailed'), 'danger');
@@ -430,6 +541,7 @@ const ResumeBuilderContent = () => {
     setResumeData(lastSavedData);
     setHasUnsavedChanges(false);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(lastSavedData));
+    setTemplatePreviewNonce((value) => value + 1);
   };
 
   const getCompanyFromTitle = (title: string | null | undefined): string | null => {
@@ -441,10 +553,6 @@ const ResumeBuilderContent = () => {
   const handleDownload = async () => {
     if (!resumeId) {
       showNotification(t('builder.alerts.downloadNotAvailable'), 'warning');
-      return;
-    }
-    if (hasTemplateDocx) {
-      showNotification('Exact formatting is preserved in DOCX for this resume. Use the DOCX download.', 'warning');
       return;
     }
     try {
@@ -670,8 +778,8 @@ const ResumeBuilderContent = () => {
               {hasTemplateDocx && (
                 <div className="mt-4 border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   This resume uses your uploaded document as the formatting template. The editor
-                  preview is normalized for editing, and exact formatting is preserved in the DOCX
-                  download.
+                  preview is normalized for editing, and template-backed PDF/DOCX exports preserve
+                  the exact layout much more closely than the on-screen editor view.
                 </div>
               )}
             </div>
@@ -706,10 +814,10 @@ const ResumeBuilderContent = () => {
                     variant="success"
                     size="sm"
                     onClick={handleDownload}
-                    disabled={!resumeId || isDownloading || hasTemplateDocx}
+                    disabled={!resumeId || isDownloading}
                   >
                     <Download className="w-4 h-4" />
-                    {isDownloading ? t('common.generating') : hasTemplateDocx ? 'PDF unavailable' : 'PDF'}
+                    {isDownloading ? t('common.generating') : 'PDF'}
                   </Button>
                   <Button
                     variant="outline"
@@ -928,10 +1036,55 @@ const ResumeBuilderContent = () => {
             <div className="flex-1 overflow-y-auto">
               {/* Resume Preview */}
               {activeTab === 'resume' && (
-                <PaginatedPreview
-                  resumeData={localizedResumeDataForPreview}
-                  settings={templateSettings}
-                />
+                <div className="p-6 space-y-3">
+                  {hasTemplateDocx && templatePreviewUrl ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-mono uppercase tracking-wide text-amber-800">
+                          {showEditableTemplatePreview
+                            ? 'Editable normalized view'
+                            : 'Exact PDF preview'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowEditableTemplatePreview((current) => !current)
+                          }
+                          className="text-xs font-mono uppercase tracking-wide text-blue-700 underline underline-offset-2"
+                        >
+                          {showEditableTemplatePreview
+                            ? 'Show Exact PDF Preview'
+                            : 'Show Editable Content View'}
+                        </button>
+                      </div>
+                      {!showEditableTemplatePreview ? (
+                        <>
+                          <div className="border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            {hasUnsavedChanges
+                              ? 'Save to refresh the exact one-page PDF preview with your latest edits.'
+                              : 'This preview matches the current template-backed PDF export.'}
+                          </div>
+                          <iframe
+                            key={templatePreviewUrl}
+                            src={templatePreviewUrl}
+                            title="Template-backed PDF preview"
+                            className="h-[calc(100vh-19rem)] min-h-[700px] w-full border border-black bg-white"
+                          />
+                        </>
+                      ) : (
+                        <PaginatedPreview
+                          resumeData={templateAwareResumeDataForPreview}
+                          settings={templateSettings}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <PaginatedPreview
+                      resumeData={templateAwareResumeDataForPreview}
+                      settings={templateSettings}
+                    />
+                  )}
+                </div>
               )}
 
               {/* Cover Letter Preview */}

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useResumePreview } from '@/components/common/resume_previewer_context';
 import type { ImprovedResult } from '@/components/common/resume_previewer_context';
@@ -24,6 +25,8 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 export default function TailorPage() {
   const { t } = useTranslations();
   const [jobDescription, setJobDescription] = useState('');
+  const [portfolioUrl, setPortfolioUrl] = useState('');
+  const [portfolioText, setPortfolioText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [masterResumeId, setMasterResumeId] = useState<string | null>(null);
@@ -80,12 +83,28 @@ export default function TailorPage() {
 
   useEffect(() => {
     const storedId = localStorage.getItem('master_resume_id');
+    const storedPortfolioUrl = localStorage.getItem('tailor_portfolio_url');
+    const storedPortfolioText = localStorage.getItem('tailor_portfolio_text');
     if (!storedId) {
       router.push('/dashboard');
     } else {
       setMasterResumeId(storedId);
     }
+    if (storedPortfolioUrl) {
+      setPortfolioUrl(storedPortfolioUrl);
+    }
+    if (storedPortfolioText) {
+      setPortfolioText(storedPortfolioText);
+    }
   }, [router]);
+
+  useEffect(() => {
+    localStorage.setItem('tailor_portfolio_url', portfolioUrl);
+  }, [portfolioUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('tailor_portfolio_text', portfolioText);
+  }, [portfolioText]);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +196,11 @@ export default function TailorPage() {
       incrementJobs(); // Update cached counter
 
       // 2. Preview Resume
-      const result = await previewImproveResume(resumeId, jobId, selectedPromptId);
+      const result = await previewImproveResume(resumeId, jobId, {
+        promptId: selectedPromptId,
+        portfolioUrl,
+        portfolioText,
+      });
 
       if (!result?.data?.diff_summary || !result?.data?.detailed_changes) {
         console.warn('Diff data missing for tailor preview; requesting user confirmation.');
@@ -404,6 +427,36 @@ export default function TailorPage() {
           />
 
           <div className="relative">
+            <div className="mb-3">
+              <label className="mb-2 block font-mono text-xs font-bold uppercase tracking-wider text-ink-soft">
+                Portfolio Reader
+              </label>
+              <Input
+                placeholder="https://bashqatan.notion.site/..."
+                value={portfolioUrl}
+                onChange={(e) => setPortfolioUrl(e.target.value)}
+                disabled={isLoading}
+                className="rounded-none border-2 border-black font-mono text-sm"
+              />
+              <p className="mt-2 font-mono text-xs text-steel-grey">
+                Optional. Public Notion pages can be used as supporting evidence for stronger,
+                more transferable bullet points. If Notion does not load cleanly, paste project
+                notes below. The reader will not invent new roles, dates, or achievements.
+              </p>
+            </div>
+            <div className="mb-3">
+              <label className="mb-2 block font-mono text-xs font-bold uppercase tracking-wider text-ink-soft">
+                Portfolio Notes
+              </label>
+              <Textarea
+                placeholder="Paste key project details from Notion here if you want the AI to use them as supporting evidence."
+                className="min-h-[120px] font-mono text-sm bg-background border-2 border-black focus:ring-0 focus:border-blue-700 resize-none p-4 rounded-none"
+                value={portfolioText}
+                onChange={(e) => setPortfolioText(e.target.value)}
+                onKeyDown={handleTextareaKeyDown}
+                disabled={isLoading}
+              />
+            </div>
             <Textarea
               placeholder={t('tailor.jobDescriptionPlaceholder')}
               className="min-h-[300px] font-mono text-sm bg-background border-2 border-black focus:ring-0 focus:border-blue-700 resize-none p-4 rounded-none"

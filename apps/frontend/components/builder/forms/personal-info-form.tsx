@@ -118,6 +118,9 @@ export const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({ data, onChan
             placeholder={t('builder.personalInfoForm.placeholders.website')}
             className="rounded-none border-black focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-blue-700 bg-transparent"
           />
+          <p className="text-[11px] text-steel-grey">
+            Used as the clickable <strong>Portfolio</strong> link in template-backed output.
+          </p>
         </div>
         <div className="space-y-2">
           <Label
@@ -133,6 +136,9 @@ export const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({ data, onChan
             placeholder={t('builder.personalInfoForm.placeholders.linkedin')}
             className="rounded-none border-black focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-blue-700 bg-transparent"
           />
+          <p className="text-[11px] text-steel-grey">
+            Used as the clickable <strong>LinkedIn</strong> link in template-backed output.
+          </p>
         </div>
         <div className="space-y-2">
           <Label

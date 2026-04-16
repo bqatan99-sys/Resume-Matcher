@@ -359,21 +359,19 @@ export function calculateAtsMatchStats(
   const matchedKeywords = new Set<string>();
 
   for (const keyword of jdKeywords) {
+    const inSkills = buckets.skills.has(keyword);
+    const inSummary = buckets.summary.has(keyword);
+    const inTitles = buckets.titles.has(keyword);
+    const inBody = buckets.body.has(keyword);
+    const sectionHits = [inSkills, inSummary, inTitles, inBody].filter(Boolean).length;
+
     let coverage = 0;
-
-    if (buckets.skills.has(keyword)) coverage += 0.45;
-    if (buckets.summary.has(keyword)) coverage += 0.25;
-    if (buckets.titles.has(keyword)) coverage += 0.2;
-    if (buckets.body.has(keyword)) coverage += 0.15;
-
-    const sectionHits = [
-      buckets.skills.has(keyword),
-      buckets.summary.has(keyword),
-      buckets.titles.has(keyword),
-      buckets.body.has(keyword),
-    ].filter(Boolean).length;
-
-    if (sectionHits >= 2) coverage += 0.1;
+    if (sectionHits > 0) coverage = 0.55;
+    if (inSkills) coverage += 0.25;
+    if (inSummary) coverage += 0.15;
+    if (inTitles) coverage += 0.1;
+    if (inBody) coverage += 0.05;
+    if (sectionHits >= 2) coverage += 0.05;
     if (coverage > 0) matchedKeywords.add(keyword);
 
     weightedScore += Math.min(coverage, 1);

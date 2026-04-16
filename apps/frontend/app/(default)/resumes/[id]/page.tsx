@@ -9,6 +9,7 @@ import {
   fetchResume,
   downloadResumePdf,
   downloadResumeDocx,
+  downloadResumeTex,
   attachResumeTemplate,
   getResumePdfUrl,
   deleteResume,
@@ -47,7 +48,12 @@ export default function ResumeViewerPage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [hasTemplateDocx, setHasTemplateDocx] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'normalized' | 'template_pdf'>('normalized');
+  const [exportMode, setExportMode] = useState<'legacy' | 'template_docx' | 'template_latex'>('legacy');
+  const [templateSourceResumeId, setTemplateSourceResumeId] = useState<string | null>(null);
   const [isAttachingTemplate, setIsAttachingTemplate] = useState(false);
+  const [showEditableView, setShowEditableView] = useState(false);
+  const [templatePreviewNonce, setTemplatePreviewNonce] = useState(0);
   const templateInputRef = useRef<HTMLInputElement | null>(null);
 
   const resumeId = params?.id as string;
@@ -78,15 +84,7 @@ export default function ResumeViewerPage() {
     ]);
     const productSkills = technicalSkills.filter((skill) => !toolHints.has(skill.toLowerCase()));
     const dataToolSkills = technicalSkills.filter((skill) => toolHints.has(skill.toLowerCase()));
-    const certificationLine = [
-      ...(baseData.additional?.certificationsTraining || []),
-      ...(baseData.additional?.languages?.length
-        ? [`Languages: ${(baseData.additional?.languages || []).join(', ')}`]
-        : []),
-      ...(baseData.additional?.awards?.length
-        ? [`Awards: ${(baseData.additional?.awards || []).join(', ')}`]
-        : []),
-    ];
+    const certificationLine = [...(baseData.additional?.certificationsTraining || [])];
 
     return {
       ...baseData,
@@ -123,6 +121,13 @@ export default function ResumeViewerPage() {
     };
   }, [hasTemplateDocx, localizedResumeData, resumeData]);
 
+  const templatePreviewUrl = useMemo(() => {
+    if (!hasTemplateDocx) return null;
+    const baseUrl = getResumePdfUrl(resumeId, undefined, uiLanguage, true);
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}cacheBust=${templatePreviewNonce}`;
+  }, [hasTemplateDocx, resumeId, templatePreviewNonce, uiLanguage]);
+
   useEffect(() => {
     if (!resumeId) return;
 
@@ -136,6 +141,10 @@ export default function ResumeViewerPage() {
         const status = (data.raw_resume?.processing_status || 'pending') as ProcessingStatus;
         setProcessingStatus(status);
         setHasTemplateDocx(Boolean(data.has_template_docx));
+        setPreviewMode(data.preview_mode || 'normalized');
+        setExportMode(data.export_mode || 'legacy');
+        setTemplateSourceResumeId(data.template_source_resume_id || null);
+        setTemplatePreviewNonce((value) => value + 1);
 
         // Capture title for editable display (always set to clear stale state)
         setResumeTitle(data.title ?? null);
@@ -222,6 +231,9 @@ export default function ResumeViewerPage() {
     try {
       const data = await fetchResume(resumeId);
       setHasTemplateDocx(Boolean(data.has_template_docx));
+      setPreviewMode(data.preview_mode || 'normalized');
+      setExportMode(data.export_mode || 'legacy');
+      setTemplateSourceResumeId(data.template_source_resume_id || null);
       if (data.processed_resume) {
         setResumeData(data.processed_resume as ResumeData);
         setError(null);
@@ -272,6 +284,20 @@ export default function ResumeViewerPage() {
     }
   };
 
+  const handleDownloadTex = async () => {
+    setIsDownloading(true);
+    try {
+      const blob = await downloadResumeTex(resumeId);
+      const filename = sanitizeFilename(resumeTitle, resumeId, 'resume', 'tex');
+      downloadBlobAsFile(blob, filename);
+      setShowDownloadSuccessDialog(true);
+    } catch (err) {
+      console.error('Failed to download TEX resume:', err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleTemplateFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -282,7 +308,11 @@ export default function ResumeViewerPage() {
       await attachResumeTemplate(resumeId, file);
       const data = await fetchResume(resumeId);
       setHasTemplateDocx(Boolean(data.has_template_docx));
-      alert('Template attached successfully. PDF and DOCX exports will now use this document format.');
+      setPreviewMode(data.preview_mode || 'normalized');
+      setExportMode(data.export_mode || 'legacy');
+      setTemplateSourceResumeId(data.template_source_resume_id || null);
+      setTemplatePreviewNonce((value) => value + 1);
+      alert('Template attached successfully. PDF and TEX exports will now use this document format.');
     } catch (err) {
       console.error('Failed to attach resume template:', err);
       alert('Failed to attach template DOCX.');
@@ -431,19 +461,47 @@ export default function ResumeViewerPage() {
               <Download className="w-4 h-4" />
               {isDownloading ? t('common.generating') : 'PDF'}
             </Button>
-            <Button variant="outline" onClick={handleDownloadDocx} disabled={isDownloading}>
-              <Download className="w-4 h-4" />
-              {isDownloading ? t('common.generating') : 'DOCX'}
-            </Button>
+            {!hasTemplateDocx && (
+              <Button variant="outline" onClick={handleDownloadDocx} disabled={isDownloading}>
+                <Download className="w-4 h-4" />
+                {isDownloading ? t('common.generating') : 'DOCX'}
+              </Button>
+            )}
+            {hasTemplateDocx && (
+              <Button variant="outline" onClick={handleDownloadTex} disabled={isDownloading}>
+                <Download className="w-4 h-4" />
+                {isDownloading ? t('common.generating') : 'TEX'}
+              </Button>
+            )}
           </div>
         </div>
 
         {hasTemplateDocx && (
           <div className="mb-6 border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 no-print">
-            This resume uses your uploaded document as the formatting template. The preview here is
-            the normalized editing view, and preserved formatting is available in both PDF and DOCX downloads.
+            This resume uses your uploaded document as the formatting template. The browser now
+            shows the exact PDF output first, and you can open the editable normalized view below
+            when you want to make content changes.
           </div>
         )}
+
+        {!hasTemplateDocx && (
+          <div className="mb-6 border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 no-print">
+            This resume is still in legacy Resume Matcher mode, so the browser preview and PDF
+            download will use the built-in renderer instead of your original layout.
+            <br />
+            Attach your source <strong>DOCX</strong> with <strong>Attach Template</strong> to
+            enable exact-format preview and template-backed export.
+          </div>
+        )}
+
+        <div className="mb-4 no-print">
+          <div className="inline-flex flex-wrap gap-2 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-800">
+            <span><strong>Preview Mode:</strong> {previewMode === 'template_pdf' ? 'Template PDF' : 'Normalized Resume Matcher'}</span>
+            <span><strong>Export Mode:</strong> {exportMode}</span>
+            <span><strong>Template Attached:</strong> {hasTemplateDocx ? 'Yes' : 'No'}</span>
+            {templateSourceResumeId && <span><strong>Template Source:</strong> {templateSourceResumeId}</span>}
+          </div>
+        </div>
 
         {/* Editable Title (tailored resumes only) */}
         {!isMasterResume && (
@@ -486,40 +544,94 @@ export default function ResumeViewerPage() {
           <div className="w-full max-w-[250mm]">
             {hasTemplateDocx && (
               <div className="mb-4 border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 no-print">
-                Preview below: editable normalized content view.
+                Preview below: exact template-backed PDF output.
                 <br />
-                Exact layout: preserved in the <strong>PDF</strong> and <strong>DOCX</strong> downloads from your uploaded
-                template.
+                Use <strong>Edit Resume</strong> or open the editable normalized view below when you
+                want to change content.
               </div>
             )}
-            <div className="resume-print shadow-sw-lg border-2 border-black bg-white">
-              <Resume
-                resumeData={templateAwarePreviewData || resumeData}
-                additionalSectionLabels={{
-                  technicalSkills: hasTemplateDocx ? 'Product:' : t('resume.additionalLabels.technicalSkills'),
-                  languages: hasTemplateDocx ? 'Data & Tools:' : t('resume.additionalLabels.languages'),
-                  certifications: hasTemplateDocx ? 'Certifications:' : t('resume.additionalLabels.certifications'),
-                  awards: t('resume.additionalLabels.awards'),
-                }}
-                sectionHeadings={{
-                  summary: t('resume.sections.summary'),
-                  experience: t('resume.sections.experience'),
-                  education: t('resume.sections.education'),
-                  projects: t('resume.sections.projects'),
-                  certifications: t('resume.sections.certifications'),
-                  skills: t('resume.sections.skillsOnly'),
-                  languages: t('resume.sections.languages'),
-                  awards: t('resume.sections.awards'),
-                  links: t('resume.sections.links'),
-                }}
-                fallbackLabels={{ name: t('resume.defaults.name') }}
-                contactDisplayOverrides={
-                  hasTemplateDocx
-                    ? { linkedin: 'LinkedIn', website: 'Portfolio', github: 'GitHub' }
-                    : undefined
-                }
-              />
-            </div>
+            {hasTemplateDocx && previewMode === 'template_pdf' ? (
+              <>
+                <div className="resume-print shadow-sw-lg border-2 border-black bg-white">
+                  {templatePreviewUrl ? (
+                    <iframe
+                      key={templatePreviewUrl}
+                      src={templatePreviewUrl}
+                      title="Template-backed PDF preview"
+                      className="w-full min-h-[1200px] bg-white"
+                    />
+                  ) : null}
+                </div>
+
+                <div className="mt-4 no-print">
+                  <Button variant="outline" onClick={() => setShowEditableView((value) => !value)}>
+                    {showEditableView ? 'Hide Editable Content View' : 'Show Editable Content View'}
+                  </Button>
+                </div>
+
+                {showEditableView && (
+                  <div className="mt-4">
+                    <div className="mb-4 border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 no-print">
+                      This view is for content editing only. The PDF preview above is the exact
+                      template-backed output.
+                    </div>
+                    <div className="resume-print shadow-sw-lg border-2 border-black bg-white">
+                      <Resume
+                        resumeData={templateAwarePreviewData || resumeData}
+                        additionalSectionLabels={{
+                          technicalSkills: 'Product:',
+                          languages: 'Data & Tools:',
+                          certifications: 'Certifications:',
+                          awards: t('resume.additionalLabels.awards'),
+                        }}
+                        sectionHeadings={{
+                          summary: t('resume.sections.summary'),
+                          experience: t('resume.sections.experience'),
+                          education: t('resume.sections.education'),
+                          projects: t('resume.sections.projects'),
+                          certifications: t('resume.sections.certifications'),
+                          skills: t('resume.sections.skillsOnly'),
+                          languages: t('resume.sections.languages'),
+                          awards: t('resume.sections.awards'),
+                          links: t('resume.sections.links'),
+                        }}
+                        fallbackLabels={{ name: t('resume.defaults.name') }}
+                        contactDisplayOverrides={{ linkedin: 'LinkedIn', website: 'Portfolio', github: 'GitHub' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="resume-print shadow-sw-lg border-2 border-black bg-white">
+                <Resume
+                  resumeData={templateAwarePreviewData || resumeData}
+                  additionalSectionLabels={{
+                    technicalSkills: hasTemplateDocx ? 'Product:' : t('resume.additionalLabels.technicalSkills'),
+                    languages: hasTemplateDocx ? 'Data & Tools:' : t('resume.additionalLabels.languages'),
+                    certifications: hasTemplateDocx ? 'Certifications:' : t('resume.additionalLabels.certifications'),
+                    awards: t('resume.additionalLabels.awards'),
+                  }}
+                  sectionHeadings={{
+                    summary: t('resume.sections.summary'),
+                    experience: t('resume.sections.experience'),
+                    education: t('resume.sections.education'),
+                    projects: t('resume.sections.projects'),
+                    certifications: t('resume.sections.certifications'),
+                    skills: t('resume.sections.skillsOnly'),
+                    languages: t('resume.sections.languages'),
+                    awards: t('resume.sections.awards'),
+                    links: t('resume.sections.links'),
+                  }}
+                  fallbackLabels={{ name: t('resume.defaults.name') }}
+                  contactDisplayOverrides={
+                    hasTemplateDocx
+                      ? { linkedin: 'LinkedIn', website: 'Portfolio', github: 'GitHub' }
+                      : undefined
+                  }
+                />
+              </div>
+            )}
           </div>
         </div>
 

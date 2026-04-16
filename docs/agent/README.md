@@ -50,8 +50,18 @@ Generic, reusable guides (Swiss design system, Next.js performance) live in [`..
 | [adding-resume-templates](features/adding-resume-templates.md) | How to add a new template |
 | [enrichment](features/enrichment.md) | AI enrichment flow |
 | [jd-match](features/jd-match.md) | Job description matching |
+| [review-personas](features/review-personas.md) | Candidate, UX, hiring manager, and recruiter review lenses |
 | [i18n](features/i18n.md) | Internationalization |
 | [i18n-preparation](features/i18n-preparation.md) | i18n setup notes |
+
+### Personas
+| Doc | Purpose |
+|-----|---------|
+| [personas/README](personas/README.md) | Review workflow and persona lineup |
+| [personas/job-seeker](personas/job-seeker.md) | Transferable-skills lens from the applicant side |
+| [personas/ux-product](personas/ux-product.md) | UX and product clarity review |
+| [personas/hiring-manager](personas/hiring-manager.md) | Role-fit and resume signal review |
+| [personas/recruiter-verifier](personas/recruiter-verifier.md) | Final ATS and recruiter trust check |
 
 ### LLM Integration
 | Doc | Purpose |

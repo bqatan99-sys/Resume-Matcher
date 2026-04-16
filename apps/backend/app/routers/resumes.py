@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import logging
+import re
 import unicodedata
 from collections.abc import Awaitable
 from pathlib import Path
@@ -17,7 +18,8 @@ from fastapi.responses import Response
 
 from app.config_cache import get_content_language, load_config as _load_config
 from app.database import db
-from app.pdf import render_resume_pdf, PDFRenderError
+from app.errors import PDFRenderError
+from app.pdf import render_resume_pdf
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -60,8 +62,45 @@ from app.services.cover_letter import (
     generate_resume_title,
 )
 from app.services.docx_export import generate_resume_docx_bytes
+from app.services.latex_export import (
+    generate_resume_latex,
+    has_master_latex_template,
+    render_latex_to_pdf,
+)
 from app.services.template_pdf import render_template_docx_pdf
+from app.services.portfolio_reader import load_portfolio_evidence
+from app.services.evidence_bank import apply_evidence_bank_variants
+from app.services.skill_taxonomy import normalize_technical_skills
 from app.prompts import DEFAULT_IMPROVE_PROMPT_ID, IMPROVE_PROMPT_OPTIONS
+
+
+def _download_headers(filename: str, disposition: str = "attachment") -> dict[str, str]:
+    return {
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+
+def _build_display_resume_data(resume: dict[str, Any]) -> dict[str, Any] | None:
+    processed_data = resume.get("processed_data")
+    if not processed_data:
+        return None
+
+    display_data = copy.deepcopy(processed_data)
+    template_source_resume = _get_template_source_resume(resume)
+    if template_source_resume and _get_original_resume_data(template_source_resume):
+        original_data = _get_original_resume_data(template_source_resume) or {}
+        display_data = _preserve_template_source_fields(
+            original_data,
+            display_data,
+            _get_original_markdown(template_source_resume),
+        )
+        display_data = _restore_original_dates(original_data, display_data)
+        display_data = _compact_for_template_page(original_data, display_data)
+
+    return normalize_resume_data(display_data)
 
 
 def _get_default_prompt_id() -> str:
@@ -70,6 +109,26 @@ def _get_default_prompt_id() -> str:
     option_ids = {option["id"] for option in IMPROVE_PROMPT_OPTIONS}
     prompt_id = config.get("default_prompt_id", DEFAULT_IMPROVE_PROMPT_ID)
     return prompt_id if prompt_id in option_ids else DEFAULT_IMPROVE_PROMPT_ID
+
+
+async def _load_optional_portfolio_context(
+    portfolio_url: str | None,
+    portfolio_text: str | None,
+    warnings: list[str],
+) -> dict[str, Any] | None:
+    if not portfolio_url and not portfolio_text:
+        return None
+    try:
+        return await load_portfolio_evidence(
+            portfolio_url=portfolio_url,
+            portfolio_text=portfolio_text,
+        )
+    except ValueError as exc:
+        warnings.append(str(exc))
+    except Exception as exc:
+        logger.warning("Portfolio context load failed for %s: %s", portfolio_url, exc)
+        warnings.append("Portfolio context could not be loaded, so tailoring used the resume only.")
+    return None
 
 
 def _hash_job_content(content: str) -> str:
@@ -128,8 +187,34 @@ def _raise_improve_error(
     raise HTTPException(status_code=500, detail=detail)
 
 
+def _diff_result_too_conservative(
+    applied_changes: list[Any],
+    improved_data: dict[str, Any],
+    original_resume_data: dict[str, Any] | None,
+    prompt_id: str,
+) -> bool:
+    """Detect when diff-based tailoring is too small to be useful."""
+    if prompt_id == "nudge":
+        return False
+
+    if len(applied_changes) >= 2:
+        return False
+
+    if not original_resume_data:
+        return True
+
+    original_summary = str(original_resume_data.get("summary") or "").strip()
+    improved_summary = str(improved_data.get("summary") or "").strip()
+    if original_summary != improved_summary:
+        return False
+
+    return True
+
+
 def _get_original_resume_data(resume: dict[str, Any]) -> dict[str, Any] | None:
-    original_data = resume.get("processed_data")
+    original_data = resume.get("template_processed_data")
+    if not original_data:
+        original_data = resume.get("processed_data")
     if not original_data and resume.get("content_type") == "json":
         try:
             original_data = json.loads(resume["content"])
@@ -144,6 +229,9 @@ def _get_original_markdown(resume: dict[str, Any]) -> str | None:
     Checks ``original_markdown`` first (persisted at upload), then
     falls back to ``content`` if it's still in markdown format.
     """
+    md = resume.get("template_markdown")
+    if md and isinstance(md, str):
+        return md
     md = resume.get("original_markdown")
     if md and isinstance(md, str):
         return md
@@ -152,6 +240,44 @@ def _get_original_markdown(resume: dict[str, Any]) -> str | None:
         if content and isinstance(content, str):
             return content
     return None
+
+
+def _extract_template_personal_info_from_markdown(markdown: str | None) -> dict[str, str]:
+    """Recover header fields from template markdown when JSON parsing drops them."""
+    if not markdown:
+        return {}
+
+    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return {}
+
+    header_line = next(
+        (line for line in lines if "LinkedIn" in line or "Portfolio" in line or "@" in line),
+        "",
+    )
+    if not header_line:
+        return {}
+
+    info: dict[str, str] = {}
+
+    if "Los Angeles, CA" in header_line:
+        info["location"] = "Los Angeles, CA"
+    elif "San Diego, CA" in header_line:
+        info["location"] = "San Diego, CA"
+
+    email_match = re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", header_line)
+    if email_match:
+        info["email"] = email_match.group(0)
+
+    linkedin_match = re.search(r"\[LinkedIn\]\(([^)]+)\)", header_line)
+    if linkedin_match:
+        info["linkedin"] = linkedin_match.group(1).strip()
+
+    portfolio_match = re.search(r"\[Portfolio\]\(([^)]+)\)", header_line)
+    if portfolio_match:
+        info["website"] = portfolio_match.group(1).strip()
+
+    return info
 
 
 def _get_template_docx_base64(resume: dict[str, Any] | None) -> str | None:
@@ -190,6 +316,21 @@ def _get_template_source_resume(resume: dict[str, Any] | None) -> dict[str, Any]
     return None
 
 
+def _get_resume_render_modes(
+    resume: dict[str, Any] | None,
+) -> tuple[bool, str | None, str, str]:
+    template_source_resume = _get_template_source_resume(resume)
+    has_template_docx = bool(_get_template_docx_base64(resume))
+    template_source_resume_id = (
+        template_source_resume.get("resume_id") if template_source_resume else None
+    )
+    if not has_template_docx:
+        return False, template_source_resume_id, "normalized", "legacy"
+    if has_master_latex_template():
+        return True, template_source_resume_id, "template_pdf", "template_latex"
+    return True, template_source_resume_id, "template_pdf", "template_docx"
+
+
 def _truncate_words(text: str, limit: int) -> str:
     words = text.split()
     if limit <= 0 or len(words) <= limit:
@@ -215,8 +356,11 @@ def _compact_for_template_page(
 
     original_summary = str(original_data.get("summary") or "").strip()
     summary = str(result.get("summary") or "").strip()
-    if summary and original_summary:
-        result["summary"] = _cap_text_to_reference(summary, original_summary, extra_words=3)
+    if original_summary:
+        if not summary or len(summary.split()) < len(original_summary.split()):
+            result["summary"] = original_summary
+        else:
+            result["summary"] = summary
 
     for section in ("workExperience", "personalProjects"):
         original_items = original_data.get(section) or []
@@ -343,6 +487,205 @@ def _restore_original_dates(
                     and not _has_month(result_years)
                 ):
                     result_items[idx]["years"] = orig_years
+
+    return result
+
+
+def _preserve_template_source_fields(
+    original_data: dict[str, Any] | None,
+    improved_data: dict[str, Any],
+    original_markdown: str | None = None,
+) -> dict[str, Any]:
+    """Preserve layout-critical fields from the master resume when omitted downstream."""
+    if not original_data:
+        return improved_data
+
+    result = copy.deepcopy(improved_data)
+
+    original_personal = original_data.get("personalInfo") or {}
+    original_personal_from_markdown = _extract_template_personal_info_from_markdown(
+        original_markdown
+    )
+    result_personal = result.setdefault("personalInfo", {})
+    if isinstance(result_personal, dict):
+        for key in ("name", "location", "email", "phone", "linkedin", "website", "github"):
+            original_value = str(
+                original_personal_from_markdown.get(key)
+                or original_personal.get(key)
+                or ""
+            ).strip()
+            current_value = str(result_personal.get(key) or "").strip()
+            if original_value and not current_value:
+                result_personal[key] = original_value
+
+    def _normalize_match_text(value: Any) -> str:
+        text = str(value or "").strip().casefold()
+        return re.sub(r"[^a-z0-9]+", "", text)
+
+    for section_key in ("workExperience", "education", "personalProjects"):
+        original_entries = original_data.get(section_key) or []
+        result_entries = result.get(section_key) or []
+        if not isinstance(original_entries, list) or not isinstance(result_entries, list):
+            continue
+
+        if section_key == "workExperience" and original_entries:
+            all_result_lines: list[str] = []
+            for item in result_entries:
+                if not isinstance(item, dict):
+                    continue
+                all_result_lines.extend(
+                    [
+                        str(line).strip()
+                        for line in (item.get("description") or [])
+                        if str(line).strip()
+                    ]
+                )
+
+            result_by_company: dict[str, dict[str, Any]] = {}
+            result_by_company_title: dict[tuple[str, str], dict[str, Any]] = {}
+            for entry in result_entries:
+                if not isinstance(entry, dict):
+                    continue
+                company_key = _normalize_match_text(entry.get("company"))
+                title_key = _normalize_match_text(entry.get("title"))
+                if company_key and company_key not in result_by_company:
+                    result_by_company[company_key] = entry
+                if company_key and title_key:
+                    result_by_company_title[(company_key, title_key)] = entry
+
+            normalized_experience: list[dict[str, Any]] = []
+            for index, original_entry in enumerate(original_entries):
+                if not isinstance(original_entry, dict):
+                    continue
+                company_key = _normalize_match_text(original_entry.get("company"))
+                title_key = _normalize_match_text(original_entry.get("title"))
+                current_entry = result_by_company_title.get((company_key, title_key))
+                if not current_entry and company_key:
+                    current_entry = result_by_company.get(company_key)
+                if not current_entry:
+                    current_entry = (
+                        result_entries[index]
+                        if index < len(result_entries) and isinstance(result_entries[index], dict)
+                        else {}
+                    )
+                merged_entry = copy.deepcopy(current_entry)
+
+                for field in ("title", "company", "years", "location"):
+                    original_value = original_entry.get(field)
+                    current_value = merged_entry.get(field)
+                    if field == "years" and original_value:
+                        merged_entry[field] = original_value
+                    elif original_value and not current_value:
+                        merged_entry[field] = original_value
+
+                original_description = [
+                    str(line).strip()
+                    for line in (original_entry.get("description") or [])
+                    if str(line).strip()
+                ]
+                current_description = [
+                    str(line).strip()
+                    for line in (merged_entry.get("description") or [])
+                    if str(line).strip()
+                ]
+                if not current_description:
+                    start = index * max(1, len(original_description))
+                    end = start + max(1, len(original_description))
+                    current_description = all_result_lines[start:end]
+                merged_entry["description"] = current_description or original_description
+                normalized_experience.append(merged_entry)
+
+            result["workExperience"] = normalized_experience
+            continue
+
+        if section_key == "personalProjects" and original_entries:
+            flattened_lines: list[str] = []
+            result_by_name: dict[str, dict[str, Any]] = {}
+            for item in result_entries:
+                if not isinstance(item, dict):
+                    continue
+                name_key = _normalize_match_text(item.get("name"))
+                if name_key and name_key not in result_by_name:
+                    result_by_name[name_key] = item
+                flattened_lines.extend(
+                    [
+                        str(line).strip()
+                        for line in (item.get("description") or [])
+                        if str(line).strip()
+                    ]
+                )
+
+            normalized_projects: list[dict[str, Any]] = []
+            used_result_entries: set[int] = set()
+            for index, original_entry in enumerate(original_entries):
+                if not isinstance(original_entry, dict):
+                    continue
+                current_entry: dict[str, Any] | None = None
+                original_name_key = _normalize_match_text(original_entry.get("name"))
+                if original_name_key:
+                    matched_entry = result_by_name.get(original_name_key)
+                    if matched_entry is not None:
+                        current_entry = matched_entry
+                        used_result_entries.add(id(matched_entry))
+
+                # Allow the first project slot to carry a renamed project like Pulse AI -> Gnome
+                # without forcing later named projects into the wrong template slots.
+                if current_entry is None and index == 0:
+                    first_entry = (
+                        result_entries[0]
+                        if result_entries and isinstance(result_entries[0], dict)
+                        else None
+                    )
+                    if first_entry is not None and id(first_entry) not in used_result_entries:
+                        current_entry = first_entry
+                        used_result_entries.add(id(first_entry))
+
+                if current_entry is None:
+                    current_entry = {}
+                merged_entry = copy.deepcopy(current_entry)
+
+                for field in ("name", "years", "role", "github", "website"):
+                    original_value = original_entry.get(field)
+                    current_value = merged_entry.get(field)
+                    if original_value and not current_value:
+                        merged_entry[field] = original_value
+
+                current_description = [
+                    str(line).strip()
+                    for line in (merged_entry.get("description") or [])
+                    if str(line).strip()
+                ]
+                original_description = [
+                    str(line).strip()
+                    for line in (original_entry.get("description") or [])
+                    if str(line).strip()
+                ]
+
+                if not current_description:
+                    if index < len(flattened_lines):
+                        current_description = [flattened_lines[index]]
+                    elif original_description:
+                        current_description = original_description[:1]
+
+                merged_entry["description"] = current_description[:1]
+                normalized_projects.append(merged_entry)
+
+            result["personalProjects"] = normalized_projects
+            continue
+
+        for index, entry in enumerate(result_entries):
+            if index >= len(original_entries):
+                break
+            original_entry = original_entries[index]
+            if not isinstance(original_entry, dict) or not isinstance(entry, dict):
+                continue
+            for field in ("title", "company", "institution", "degree", "name", "years", "location"):
+                original_value = str(original_entry.get(field) or "").strip()
+                current_value = str(entry.get(field) or "").strip()
+                if field == "years" and original_value:
+                    entry[field] = original_value
+                elif original_value and not current_value:
+                    entry[field] = original_value
 
     return result
 
@@ -728,16 +1071,8 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
         processing_status=processing_status,
     )
 
-    # Get processed data if available (no more on-demand parsing)
-    processed_data = resume.get("processed_data")
-
-    # Apply lazy migration - add section metadata to old resumes
-    if processed_data:
-        processed_data = normalize_resume_data(processed_data)
-
-    processed_resume = (
-        ResumeData.model_validate(processed_data) if processed_data else None
-    )
+    processed_data = _build_display_resume_data(resume)
+    processed_resume = ResumeData.model_validate(processed_data) if processed_data else None
 
     return ResumeFetchResponse(
         request_id=str(uuid4()),
@@ -749,7 +1084,10 @@ async def get_resume(resume_id: str = Query(...)) -> ResumeFetchResponse:
             outreach_message=resume.get("outreach_message"),
             parent_id=resume.get("parent_id"),
             title=resume.get("title"),
-            has_template_docx=bool(_get_template_docx_base64(resume)),
+            has_template_docx=_get_resume_render_modes(resume)[0],
+            template_source_resume_id=_get_resume_render_modes(resume)[1],
+            preview_mode=_get_resume_render_modes(resume)[2],
+            export_mode=_get_resume_render_modes(resume)[3],
         ),
     )
 
@@ -835,6 +1173,12 @@ async def _improve_preview_flow(
     prompt_id: str,
 ) -> ImproveResumeResponse:
     """Inner flow for improve/preview, extracted so it can be wrapped in wait_for."""
+    response_warnings: list[str] = []
+    portfolio_context = await _load_optional_portfolio_context(
+        request.portfolio_url,
+        request.portfolio_text,
+        response_warnings,
+    )
     job_keywords = job.get("job_keywords")
     job_keywords_hash = job.get("job_keywords_hash")
     content_hash = _hash_job_content(job["content"])
@@ -858,8 +1202,6 @@ async def _improve_preview_flow(
                 e,
             )
     original_resume_data = _get_original_resume_data(resume)
-    # Collect warnings throughout the process
-    response_warnings: list[str] = []
 
     # Diff-based improvement: generate targeted changes, apply with verification
     if original_resume_data:
@@ -870,6 +1212,7 @@ async def _improve_preview_flow(
             language=language,
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
+            portfolio_context=portfolio_context,
         )
 
         improved_data, applied_changes, rejected_changes = apply_diffs(
@@ -896,6 +1239,25 @@ async def _improve_preview_flow(
             len(rejected_changes),
             len(diff_warnings),
         )
+
+        if _diff_result_too_conservative(
+            applied_changes,
+            improved_data,
+            original_resume_data,
+            prompt_id,
+        ):
+            response_warnings.append(
+                "Initial diff pass was too conservative, so Resume Matcher used a fuller tailoring pass."
+            )
+            improved_data = await improve_resume(
+                original_resume=resume["content"],
+                job_description=job["content"],
+                job_keywords=job_keywords,
+                language=language,
+                prompt_id=prompt_id,
+                original_resume_data=original_resume_data,
+                portfolio_context=portfolio_context,
+            )
     else:
         # Fallback to full-output mode when no structured data available
         improved_data = await improve_resume(
@@ -905,9 +1267,17 @@ async def _improve_preview_flow(
             language=language,
             prompt_id=prompt_id,
             original_resume_data=original_resume_data,
+            portfolio_context=portfolio_context,
         )
 
     # Safety nets (defense in depth — should rarely activate with diff-based flow)
+    improved_data, evidence_warnings = apply_evidence_bank_variants(
+        improved_data,
+        original_resume_data,
+        job_keywords,
+    )
+    response_warnings.extend(evidence_warnings)
+
     improved_data, preserve_warnings = _preserve_personal_info(
         original_resume_data,
         improved_data,
@@ -1036,6 +1406,12 @@ async def _improve_preview_flow(
             warnings=response_warnings,
             refinement_attempted=refinement_attempted,
             refinement_successful=refinement_successful,
+            portfolio_source_url=(
+                portfolio_context.get("source_url") if portfolio_context else None
+            ),
+            portfolio_summary=(
+                portfolio_context.get("summary") if portfolio_context else None
+            ),
         ),
     )
 
@@ -1216,8 +1592,12 @@ async def improve_resume_endpoint(
         prompt_id = request.prompt_id or _get_default_prompt_id()
 
         original_resume_data = _get_original_resume_data(resume)
-        # Collect warnings throughout the process
         response_warnings: list[str] = []
+        portfolio_context = await _load_optional_portfolio_context(
+            request.portfolio_url,
+            request.portfolio_text,
+            response_warnings,
+        )
 
         # Diff-based improvement: generate targeted changes, apply with verification
         if original_resume_data:
@@ -1228,6 +1608,7 @@ async def improve_resume_endpoint(
                 language=language,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
+                portfolio_context=portfolio_context,
             )
 
             improved_data, applied_changes, rejected_changes = apply_diffs(
@@ -1254,6 +1635,25 @@ async def improve_resume_endpoint(
                 len(rejected_changes),
                 len(diff_warnings),
             )
+
+            if _diff_result_too_conservative(
+                applied_changes,
+                improved_data,
+                original_resume_data,
+                prompt_id,
+            ):
+                response_warnings.append(
+                    "Initial diff pass was too conservative, so Resume Matcher used a fuller tailoring pass."
+                )
+                improved_data = await improve_resume(
+                    original_resume=resume["content"],
+                    job_description=job["content"],
+                    job_keywords=job_keywords,
+                    language=language,
+                    prompt_id=prompt_id,
+                    original_resume_data=original_resume_data,
+                    portfolio_context=portfolio_context,
+                )
         else:
             # Fallback to full-output mode when no structured data available
             improved_data = await improve_resume(
@@ -1263,9 +1663,17 @@ async def improve_resume_endpoint(
                 language=language,
                 prompt_id=prompt_id,
                 original_resume_data=original_resume_data,
+                portfolio_context=portfolio_context,
             )
 
         # Safety nets (defense in depth)
+        improved_data, evidence_warnings = apply_evidence_bank_variants(
+            improved_data,
+            original_resume_data,
+            job_keywords,
+        )
+        response_warnings.extend(evidence_warnings)
+
         improved_data, preserve_warnings = _preserve_personal_info(
             original_resume_data,
             improved_data,
@@ -1412,6 +1820,12 @@ async def improve_resume_endpoint(
                 warnings=response_warnings,
                 refinement_attempted=refinement_attempted,
                 refinement_successful=refinement_successful,
+                portfolio_source_url=(
+                    portfolio_context.get("source_url") if portfolio_context else None
+                ),
+                portfolio_summary=(
+                    portfolio_context.get("summary") if portfolio_context else None
+                ),
             ),
         )
 
@@ -1433,6 +1847,23 @@ async def update_resume_endpoint(
         raise HTTPException(status_code=404, detail="Resume not found")
 
     updated_data = resume_data.model_dump()
+    additional = updated_data.get("additional")
+    if isinstance(additional, dict):
+        additional["technicalSkills"] = normalize_technical_skills(
+            additional.get("technicalSkills") or []
+        )
+
+    template_source_resume = _get_template_source_resume(existing)
+    if template_source_resume:
+        updated_data = _restore_original_dates(
+            _get_original_resume_data(template_source_resume),
+            updated_data,
+        )
+        updated_data = _compact_for_template_page(
+            _get_original_resume_data(template_source_resume),
+            updated_data,
+        )
+
     updated_content = json.dumps(updated_data, indent=2)
 
     updated = db.update_resume(
@@ -1456,11 +1887,8 @@ async def update_resume_endpoint(
         processing_status=updated.get("processing_status", "pending"),
     )
 
-    processed_resume = (
-        ResumeData.model_validate(updated.get("processed_data"))
-        if updated.get("processed_data")
-        else None
-    )
+    processed_data = _build_display_resume_data(updated)
+    processed_resume = ResumeData.model_validate(processed_data) if processed_data else None
 
     return ResumeFetchResponse(
         request_id=str(uuid4()),
@@ -1468,7 +1896,10 @@ async def update_resume_endpoint(
             resume_id=resume_id,
             raw_resume=raw_resume,
             processed_resume=processed_resume,
-            has_template_docx=bool(_get_template_docx_base64(updated)),
+            has_template_docx=_get_resume_render_modes(updated)[0],
+            template_source_resume_id=_get_resume_render_modes(updated)[1],
+            preview_mode=_get_resume_render_modes(updated)[2],
+            export_mode=_get_resume_render_modes(updated)[3],
         ),
     )
 
@@ -1493,10 +1924,21 @@ async def attach_resume_template(resume_id: str, file: UploadFile = File(...)) -
             detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024 * 1024)}MB",
         )
 
-    db.update_resume(
-        resume_id,
-        {"template_docx_base64": base64.b64encode(content).decode("ascii")},
-    )
+    updates: dict[str, Any] = {
+        "template_docx_base64": base64.b64encode(content).decode("ascii"),
+    }
+
+    try:
+        template_markdown = await parse_document(content, file.filename or "template.docx")
+        updates["template_markdown"] = template_markdown
+        try:
+            updates["template_processed_data"] = await parse_resume_to_json(template_markdown)
+        except Exception as exc:
+            logger.warning("Failed to parse attached DOCX template into JSON: %s", exc)
+    except Exception as exc:
+        logger.warning("Failed to convert attached DOCX template to markdown: %s", exc)
+
+    db.update_resume(resume_id, updates)
     return GenerateContentResponse(
         content="",
         message="Resume template attached successfully",
@@ -1523,6 +1965,7 @@ async def download_resume_pdf(
     showContactIcons: bool = Query(False),
     accentColor: str = Query("blue", pattern="^(blue|green|orange|red)$"),
     lang: str | None = Query(None, pattern="^[a-z]{2}(-[A-Z]{2})?$"),
+    preview: bool = Query(False),
 ) -> Response:
     """Generate a PDF for a resume using headless Chromium.
 
@@ -1559,26 +2002,44 @@ async def download_resume_pdf(
             )
 
         export_data = copy.deepcopy(processed_data)
-        if template_source_resume and template_source_resume.get("processed_data"):
+        if template_source_resume and _get_original_resume_data(template_source_resume):
+            export_data = _preserve_template_source_fields(
+                _get_original_resume_data(template_source_resume) or {},
+                export_data,
+                _get_original_markdown(template_source_resume),
+            )
+            export_data = _restore_original_dates(
+                _get_original_resume_data(template_source_resume) or {},
+                export_data,
+            )
             export_data = _compact_for_template_page(
-                template_source_resume.get("processed_data") or {},
+                _get_original_resume_data(template_source_resume) or {},
                 export_data,
             )
 
         try:
-            docx_bytes = generate_resume_docx_bytes(
-                export_data,
-                template_bytes=base64.b64decode(template_docx_base64),
-            )
-            pdf_bytes = await render_template_docx_pdf(
-                docx_bytes,
-                filename_stem=f"resume_{resume_id}",
-                page_size=pageSize,
-            )
+            if has_master_latex_template():
+                latex_source = generate_resume_latex(export_data)
+                pdf_bytes = await render_latex_to_pdf(
+                    latex_source,
+                    filename_stem=f"resume_{resume_id}",
+                    page_size=pageSize,
+                )
+            else:
+                docx_bytes = generate_resume_docx_bytes(
+                    export_data,
+                    template_bytes=base64.b64decode(template_docx_base64),
+                )
+                pdf_bytes = await render_template_docx_pdf(
+                    docx_bytes,
+                    filename_stem=f"resume_{resume_id}",
+                    page_size=pageSize,
+                )
         except PDFRenderError as e:
             raise HTTPException(status_code=503, detail=str(e))
 
-        headers = {"Content-Disposition": f'attachment; filename="resume_{resume_id}.pdf"'}
+        disposition = "inline" if preview else "attachment"
+        headers = _download_headers(f"resume_{resume_id}.pdf", disposition)
         return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
     # Build print URL with all settings
@@ -1618,7 +2079,8 @@ async def download_resume_pdf(
     except PDFRenderError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    headers = {"Content-Disposition": f'attachment; filename="resume_{resume_id}.pdf"'}
+    disposition = "inline" if preview else "attachment"
+    headers = _download_headers(f"resume_{resume_id}.pdf", disposition)
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
@@ -1642,7 +2104,23 @@ async def download_resume_docx(resume_id: str) -> Response:
     template_bytes = (
         base64.b64decode(template_docx_base64) if template_docx_base64 else None
     )
+    if template_source_resume and has_master_latex_template():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This resume uses the LaTeX master template. Download PDF or TEX "
+                "for the exact-format output."
+            ),
+        )
     if template_source_resume:
+        processed_data = _preserve_template_source_fields(
+            _get_original_resume_data(template_source_resume),
+            processed_data,
+            _get_original_markdown(template_source_resume),
+        )
+        processed_data = _restore_original_dates(
+            _get_original_resume_data(template_source_resume), processed_data
+        )
         processed_data = _compact_for_template_page(
             _get_original_resume_data(template_source_resume), processed_data
         )
@@ -1650,12 +2128,46 @@ async def download_resume_docx(resume_id: str) -> Response:
         normalize_resume_data(copy.deepcopy(processed_data)),
         template_bytes=template_bytes,
     )
-    headers = {
-        "Content-Disposition": f'attachment; filename="resume_{resume_id}.docx"'
-    }
+    headers = _download_headers(f"resume_{resume_id}.docx")
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers=headers,
+    )
+
+
+@router.get("/{resume_id}/tex")
+async def download_resume_tex(resume_id: str) -> Response:
+    """Generate a LaTeX resume using the April 14 master layout."""
+    resume = db.get_resume(resume_id)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    processed_data = resume.get("processed_data")
+    if not processed_data:
+        raise HTTPException(status_code=400, detail="Resume has no structured data to export")
+
+    template_source_resume = _get_template_source_resume(resume)
+    if template_source_resume:
+        processed_data = _preserve_template_source_fields(
+            _get_original_resume_data(template_source_resume),
+            processed_data,
+            _get_original_markdown(template_source_resume),
+        )
+        processed_data = _restore_original_dates(
+            _get_original_resume_data(template_source_resume), processed_data
+        )
+        processed_data = _compact_for_template_page(
+            _get_original_resume_data(template_source_resume), processed_data
+        )
+
+    latex_source = generate_resume_latex(
+        normalize_resume_data(copy.deepcopy(processed_data))
+    )
+    headers = _download_headers(f"resume_{resume_id}.tex")
+    return Response(
+        content=latex_source.encode("utf-8"),
+        media_type="application/x-tex",
         headers=headers,
     )
 

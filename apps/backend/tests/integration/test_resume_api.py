@@ -220,19 +220,35 @@ class TestDownloadResumeDocx:
         async with client:
             resp = await client.get("/api/v1/resumes/child-123/docx")
 
+        assert resp.status_code == 409
+        assert "LaTeX master template" in resp.json()["detail"]
+
+
+class TestDownloadResumeTex:
+    """GET /api/v1/resumes/{resume_id}/tex"""
+
+    @patch("app.routers.resumes.db")
+    async def test_download_resume_tex(self, mock_db, client, mock_resume_record):
+        mock_db.get_resume.return_value = mock_resume_record
+
+        async with client:
+            resp = await client.get("/api/v1/resumes/res-123/tex")
+
         assert resp.status_code == 200
-        assert resp.content[:2] == b"PK"
+        assert resp.headers["content-type"].startswith("application/x-tex")
+        assert 'filename="resume_res-123.tex"' in resp.headers["content-disposition"]
+        assert "\\documentclass" in resp.text
 
 
 class TestDownloadResumePdf:
     """GET /api/v1/resumes/{resume_id}/pdf"""
 
     @patch("app.routers.resumes.db")
-    @patch("app.routers.resumes.render_template_docx_pdf", new_callable=AsyncMock)
+    @patch("app.routers.resumes.render_latex_to_pdf", new_callable=AsyncMock)
     async def test_download_resume_pdf_uses_template_backed_export(
-        self, mock_render_template_pdf, mock_db, client, mock_resume_record
+        self, mock_render_latex_pdf, mock_db, client, mock_resume_record
     ):
-        mock_render_template_pdf.return_value = b"%PDF-template"
+        mock_render_latex_pdf.return_value = b"%PDF-template"
         mock_db.get_resume.return_value = {
             **mock_resume_record,
             "template_docx_base64": "ZmFrZS10ZW1wbGF0ZQ==",
@@ -243,7 +259,7 @@ class TestDownloadResumePdf:
         assert resp.status_code == 200
         assert resp.content == b"%PDF-template"
         assert resp.headers["content-type"] == "application/pdf"
-        mock_render_template_pdf.assert_awaited_once()
+        mock_render_latex_pdf.assert_called_once()
 
 
 class TestAttachResumeTemplate:

@@ -7,13 +7,14 @@ FRONTEND_DIR="$ROOT_DIR/apps/frontend"
 BACKEND_ENV_FILE="$BACKEND_DIR/.env"
 BACKEND_ENV_TEMPLATE="$BACKEND_DIR/.env.example"
 
-OLLAMA_MODEL="${OLLAMA_MODEL:-gemma3:4b}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 FRONTEND_BASE_URL="${FRONTEND_BASE_URL:-http://localhost:${FRONTEND_PORT}}"
 BACKEND_ORIGIN="${BACKEND_ORIGIN:-http://127.0.0.1:${BACKEND_PORT}}"
+FORCE_RESTART="${FORCE_RESTART:-0}"
 
 PIDS=()
 OLLAMA_STARTED_BY_SCRIPT=0
@@ -45,6 +46,41 @@ url_is_ready() {
 port_is_in_use() {
   local port="$1"
   lsof -ti tcp:"$port" >/dev/null 2>&1
+}
+
+port_pids() {
+  local port="$1"
+  lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+stop_port_processes() {
+  local port="$1"
+  local label="$2"
+  local pids
+  pids="$(port_pids "$port")"
+
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+
+  info "Stopping existing $label process on port $port..."
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    kill "$pid" >/dev/null 2>&1 || true
+  done <<< "$pids"
+
+  for _ in {1..20}; do
+    if ! port_is_in_use "$port"; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  warn "$label on port $port did not stop cleanly; forcing shutdown."
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  done <<< "$pids"
 }
 
 append_env_if_missing() {
@@ -144,6 +180,11 @@ fi
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   info "Installing frontend dependencies with npm..."
   (cd "$FRONTEND_DIR" && npm install)
+fi
+
+if [[ "$FORCE_RESTART" == "1" ]]; then
+  stop_port_processes "$BACKEND_PORT" "backend"
+  stop_port_processes "$FRONTEND_PORT" "frontend"
 fi
 
 if url_is_ready "$BACKEND_ORIGIN/api/v1/health"; then

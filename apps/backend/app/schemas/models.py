@@ -391,6 +391,9 @@ class ResumeFetchData(BaseModel):
     parent_id: str | None = None  # For determining if resume is tailored
     title: str | None = None
     has_template_docx: bool = False
+    template_source_resume_id: str | None = None
+    preview_mode: Literal["normalized", "template_pdf"] = "normalized"
+    export_mode: Literal["legacy", "template_docx", "template_latex"] = "legacy"
 
 
 class ResumeFetchResponse(BaseModel):
@@ -443,6 +446,8 @@ class ImproveResumeRequest(BaseModel):
     resume_id: str
     job_id: str
     prompt_id: str | None = None
+    portfolio_url: str | None = None
+    portfolio_text: str | None = None
 
 
 class ImprovementSuggestion(BaseModel):
@@ -533,6 +538,8 @@ class ImproveResumeData(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     refinement_attempted: bool = False
     refinement_successful: bool = False
+    portfolio_source_url: str | None = None
+    portfolio_summary: str | None = None
 
 
 class ImproveResumeResponse(BaseModel):

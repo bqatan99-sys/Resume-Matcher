@@ -526,7 +526,7 @@ def calculate_keyword_match(
     resume: dict[str, Any],
     jd_keywords: dict[str, Any],
 ) -> float:
-    """Calculate keyword match percentage.
+    """Calculate an ATS-style weighted keyword match percentage.
 
     Args:
         resume: Resume data dictionary
@@ -535,21 +535,128 @@ def calculate_keyword_match(
     Returns:
         Match percentage (0.0 to 100.0)
     """
-    resume_text = _extract_all_text(resume).lower()
-
-    all_keywords: set[str] = set()
-    all_keywords.update(jd_keywords.get("required_skills", []))
-    all_keywords.update(jd_keywords.get("preferred_skills", []))
-    all_keywords.update(jd_keywords.get("keywords", []))
+    keyword_groups = {
+        "required_skills": {
+            str(kw).strip() for kw in jd_keywords.get("required_skills", []) if str(kw).strip()
+        },
+        "preferred_skills": {
+            str(kw).strip() for kw in jd_keywords.get("preferred_skills", []) if str(kw).strip()
+        },
+        "keywords": {
+            str(kw).strip() for kw in jd_keywords.get("keywords", []) if str(kw).strip()
+        },
+    }
+    all_keywords = (
+        keyword_groups["required_skills"]
+        | keyword_groups["preferred_skills"]
+        | keyword_groups["keywords"]
+    )
 
     # SVC-009: Return 0% if no keywords (not 100% - that's misleading)
     if not all_keywords:
         logger.warning("No keywords found in job description")
         return 0.0
 
-    # SVC-010: Use word boundary matching instead of substring
-    matched = sum(1 for kw in all_keywords if _keyword_in_text(kw, resume_text))
-    return (matched / len(all_keywords)) * 100
+    buckets = _collect_resume_keyword_buckets(resume)
+
+    keyword_type_weights = {
+        "required_skills": 1.35,
+        "preferred_skills": 0.85,
+        "keywords": 1.0,
+    }
+    total_weight = 0.0
+    matched_weight = 0.0
+
+    for keyword in all_keywords:
+        group_weight = next(
+            (
+                weight
+                for group_name, weight in keyword_type_weights.items()
+                if keyword in keyword_groups[group_name]
+            ),
+            1.0,
+        )
+        total_weight += group_weight
+
+        in_skills = _keyword_in_text(keyword, buckets["skills"])
+        in_summary = _keyword_in_text(keyword, buckets["summary"])
+        in_titles = _keyword_in_text(keyword, buckets["titles"])
+        in_body = _keyword_in_text(keyword, buckets["body"])
+        section_hits = sum([in_skills, in_summary, in_titles, in_body])
+
+        coverage = 0.0
+        if section_hits > 0:
+            coverage = 0.55
+        if in_skills:
+            coverage += 0.25
+        if in_summary:
+            coverage += 0.15
+        if in_titles:
+            coverage += 0.1
+        if in_body:
+            coverage += 0.05
+        if section_hits >= 2:
+            coverage += 0.05
+
+        matched_weight += min(coverage, 1.0) * group_weight
+
+    return (matched_weight / total_weight) * 100 if total_weight > 0 else 0.0
+
+
+def _collect_resume_keyword_buckets(resume: dict[str, Any]) -> dict[str, str]:
+    """Collect resume text into section-weighted ATS buckets."""
+    buckets = {
+        "summary": [],
+        "titles": [],
+        "skills": [],
+        "body": [],
+    }
+
+    def add(bucket: str, value: Any) -> None:
+        text = str(value or "").strip()
+        if text:
+            buckets[bucket].append(text)
+
+    add("summary", resume.get("summary"))
+
+    for exp in resume.get("workExperience", []):
+        if not isinstance(exp, dict):
+            continue
+        add("titles", exp.get("title"))
+        add("titles", exp.get("company"))
+        add("body", exp.get("location"))
+        for line in exp.get("description", []) or []:
+            add("body", line)
+
+    for edu in resume.get("education", []):
+        if not isinstance(edu, dict):
+            continue
+        add("titles", edu.get("degree"))
+        add("titles", edu.get("institution"))
+        add("body", edu.get("description"))
+
+    for proj in resume.get("personalProjects", []):
+        if not isinstance(proj, dict):
+            continue
+        add("titles", proj.get("name"))
+        add("titles", proj.get("role"))
+        add("body", proj.get("github"))
+        add("body", proj.get("website"))
+        for line in proj.get("description", []) or []:
+            add("body", line)
+
+    additional = resume.get("additional", {})
+    if isinstance(additional, dict):
+        for skill in additional.get("technicalSkills", []) or []:
+            add("skills", skill)
+        for cert in additional.get("certificationsTraining", []) or []:
+            add("skills", cert)
+        for language in additional.get("languages", []) or []:
+            add("body", language)
+        for award in additional.get("awards", []) or []:
+            add("body", award)
+
+    return {bucket: " ".join(values).lower() for bucket, values in buckets.items()}
 
 
 def _extract_all_text(data: dict[str, Any]) -> str:

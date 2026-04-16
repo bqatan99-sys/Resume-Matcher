@@ -1,0 +1,63 @@
+\documentclass[10pt]{article}
+
+\usepackage[letterpaper,margin=0.44in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{times}
+\usepackage[hidelinks]{hyperref}
+\urlstyle{same}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{ragged2e}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\setlist[itemize]{leftmargin=1.25em, labelsep=0.45em, labelwidth=0.55em, itemindent=0pt, listparindent=0pt, itemsep=0.1em, topsep=0.15em, parsep=0em, partopsep=0em}
+
+\titleformat{\section}
+  {\normalfont\bfseries\normalsize}
+  {}
+  {0pt}
+  {}
+  [\titlerule]
+\titlespacing*{\section}{0pt}{0.42em}{0.34em}
+
+\newcommand{\ResumeHeader}[2]{
+  \begin{center}
+    {\Large\bfseries #1}\par
+    \vspace{0.12em}
+    {\footnotesize #2}
+  \end{center}
+}
+
+\newcommand{\Entry}[4]{
+  \begin{tabularx}{\textwidth}{@{}X>{\raggedleft\arraybackslash}p{2.85cm}@{}}
+    \textbf{#1} #2 & {\small\bfseries #3} \\
+  \end{tabularx}
+  {\itshape #4}\par
+  \vspace{0.16em}
+}
+
+\newcommand{\ProjectLine}[2]{
+  \textbf{#1}: #2\par
+  \vspace{0.16em}
+}
+
+\newcommand{\SkillLine}[2]{
+  \textbf{#1} #2\par
+}
+
+\begin{document}
+
+@@HEADER_BLOCK@@
+@@SUMMARY_BLOCK@@
+@@EDUCATION_BLOCK@@
+@@EXPERIENCE_BLOCK@@
+@@PROJECTS_BLOCK@@
+@@SKILLS_BLOCK@@
+
+\end{document}

@@ -394,6 +394,20 @@ def _get_reasoning_effort(provider: str, model: str) -> str | None:
     return None
 
 
+def _get_ollama_extra_body(provider: str, model: str) -> dict[str, Any] | None:
+    """Return extra body fields for Ollama models that need special handling."""
+    if provider != "ollama":
+        return None
+
+    model_lower = model.lower()
+    # Qwen3 enables thinking by default in Ollama. Disable it for app flows that
+    # expect normal answer content/JSON rather than separated reasoning traces.
+    if "qwen3" in model_lower:
+        return {"think": False}
+
+    return None
+
+
 async def check_llm_health(
     config: LLMConfig | None = None,
     *,
@@ -431,6 +445,9 @@ async def check_llm_health(
         reasoning_effort = _get_reasoning_effort(config.provider, model_name)
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
+        extra_body = _get_ollama_extra_body(config.provider, model_name)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         response = await litellm.acompletion(**kwargs)
         content = _extract_choice_text(response.choices[0])
@@ -528,6 +545,9 @@ async def complete(
         reasoning_effort = _get_reasoning_effort(config.provider, model_name)
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
+        extra_body = _get_ollama_extra_body(config.provider, model_name)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         response = await router.acompletion(**kwargs)
 
@@ -788,6 +808,9 @@ async def complete_json(
                 config.provider, model_name)
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
+            extra_body = _get_ollama_extra_body(config.provider, model_name)
+            if extra_body:
+                kwargs["extra_body"] = extra_body
 
             # Add JSON mode if supported
             if use_json_mode:

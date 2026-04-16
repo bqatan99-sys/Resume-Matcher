@@ -21,6 +21,8 @@ from app.prompts import (
 from app.prompts.templates import IMPROVE_SCHEMA_EXAMPLE
 from app.schemas import ResumeData, ResumeFieldDiff, ResumeDiffSummary
 from app.schemas.models import ImproveDiffResult, ResumeChange
+from app.services.evidence_bank import build_evidence_bank_context
+from app.services.portfolio_reader import format_portfolio_context
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +429,7 @@ async def generate_resume_diffs(
     language: str = "en",
     prompt_id: str | None = None,
     original_resume_data: dict[str, Any] | None = None,
+    portfolio_context: dict[str, Any] | None = None,
 ) -> ImproveDiffResult:
     """Generate targeted resume diffs via LLM.
 
@@ -474,6 +477,11 @@ async def generate_resume_diffs(
         output_language=output_language,
         job_keywords=keywords_str,
         job_description=sanitized_jd,
+        portfolio_context=format_portfolio_context(portfolio_context),
+        resume_evidence_bank=build_evidence_bank_context(
+            original_resume_data,
+            job_keywords,
+        ),
         original_resume=resume_input,
     )
 
@@ -598,6 +606,7 @@ async def improve_resume(
     language: str = "en",
     prompt_id: str | None = None,
     original_resume_data: dict[str, Any] | None = None,
+    portfolio_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Improve resume to better match job description.
 
@@ -653,6 +662,11 @@ async def improve_resume(
     prompt = prompt_template.format(
         job_description=sanitized_jd,
         job_keywords=keywords_str,
+        portfolio_context=format_portfolio_context(portfolio_context),
+        resume_evidence_bank=build_evidence_bank_context(
+            original_resume_data,
+            job_keywords,
+        ),
         original_resume=resume_input,
         schema=IMPROVE_SCHEMA_EXAMPLE,
         output_language=output_language,
@@ -1059,7 +1073,8 @@ def calculate_resume_diff(
             [
                 c
                 for c in changes
-                if c.field_type == "description" and c.change_type == "modified"
+                if c.field_type == "description"
+                and c.change_type in {"modified", "added"}
             ]
         ),
         certifications_added=len([c for c in changes if c.field_type == "certification" and c.change_type == "added"]),

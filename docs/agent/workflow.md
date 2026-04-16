@@ -71,3 +71,4 @@ Before marking a PR as ready:
 - [ ] No exposed secrets or API keys
 - [ ] Follows existing patterns in the codebase
 - [ ] Documentation updated if needed
+- [ ] Recruiter-verifier pass confirms the output is truthful, ATS-readable, and easy to shortlist

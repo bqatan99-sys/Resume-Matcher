@@ -34,7 +34,7 @@ export function sanitizeFilename(
   title: string | null | undefined,
   fallbackId: string,
   type: 'resume' | 'cover-letter' = 'resume',
-  extension: 'pdf' | 'docx' = 'pdf'
+  extension: 'pdf' | 'docx' | 'tex' = 'pdf'
 ): string {
   // Use fallback if no title
   if (!title?.trim()) {
@@ -72,7 +72,7 @@ export function buildResumeFilename(
   company: string | null | undefined,
   fallbackId: string,
   type: 'resume' | 'cover-letter' = 'resume',
-  extension: 'pdf' | 'docx' = 'pdf'
+  extension: 'pdf' | 'docx' | 'tex' = 'pdf'
 ): string {
   const typeLabel = type === 'resume' ? 'Resume' : 'Cover Letter';
   const cleanName = name?.trim() || null;

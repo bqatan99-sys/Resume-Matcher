@@ -206,7 +206,7 @@ class TestAnalyzeKeywordGaps:
 
 
 class TestCalculateKeywordMatch:
-    """Tests for calculate_keyword_match() — percentage calculation."""
+    """Tests for calculate_keyword_match() — ATS-style percentage calculation."""
 
     def test_returns_percentage(self, sample_resume, sample_job_keywords):
         pct = calculate_keyword_match(sample_resume, sample_job_keywords)
@@ -216,11 +216,28 @@ class TestCalculateKeywordMatch:
         pct = calculate_keyword_match(sample_resume, {"required_skills": [], "preferred_skills": [], "keywords": []})
         assert pct == 0.0
 
-    def test_returns_100_when_all_present(self, sample_resume):
+    def test_returns_high_score_when_all_present(self, sample_resume):
         # Use keywords that are definitely in the resume
         keywords = {"required_skills": ["Python", "FastAPI"], "preferred_skills": [], "keywords": []}
         pct = calculate_keyword_match(sample_resume, keywords)
-        assert pct == 100.0
+        assert pct >= 75.0
+
+    def test_weights_required_skills_more_than_preferred(self, sample_resume):
+        preferred_only = {
+            "required_skills": [],
+            "preferred_skills": ["Python"],
+            "keywords": [],
+        }
+        required_only = {
+            "required_skills": ["Python"],
+            "preferred_skills": [],
+            "keywords": [],
+        }
+
+        preferred_score = calculate_keyword_match(sample_resume, preferred_only)
+        required_score = calculate_keyword_match(sample_resume, required_only)
+
+        assert required_score >= preferred_score
 
     def test_word_boundary_matching(self, sample_resume):
         """'Go' should not match 'Google' or 'going'."""

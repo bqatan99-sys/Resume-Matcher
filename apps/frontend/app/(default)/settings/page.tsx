@@ -68,6 +68,11 @@ const SEGMENTED_BUTTON_BASE =
   'border border-black font-mono transition-all duration-150 ease-out shadow-sw-sm hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50';
 const SEGMENTED_BUTTON_ACTIVE = 'bg-blue-700 text-white border-black hover:bg-blue-800';
 const SEGMENTED_BUTTON_INACTIVE = 'bg-white text-black hover:bg-secondary';
+const OLLAMA_MODEL_PRESETS = [
+  { value: 'qwen3:8b', label: 'Balanced', description: 'Recommended default' },
+  { value: 'qwen3:30b', label: 'Best quality', description: 'Higher resource use' },
+  { value: 'gemma3:4b', label: 'Lightweight', description: 'Fast fallback' },
+];
 
 const unwrapCodeBlock = (value?: string | null): string | null => {
   if (!value) return null;
@@ -754,6 +759,31 @@ export default function SettingsPage() {
                     model: providerInfo.defaultModel,
                   })}
                 </p>
+                {provider === 'ollama' && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-steel-grey font-mono">
+                      Quick presets for ATS tuning:
+                    </p>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {OLLAMA_MODEL_PRESETS.map((preset) => (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          onClick={() => setModel(preset.value)}
+                          className={`px-3 py-2 text-left ${SEGMENTED_BUTTON_BASE} ${
+                            model === preset.value
+                              ? SEGMENTED_BUTTON_ACTIVE
+                              : SEGMENTED_BUTTON_INACTIVE
+                          }`}
+                        >
+                          <div className="text-xs font-bold uppercase">{preset.label}</div>
+                          <div className="font-mono text-xs">{preset.value}</div>
+                          <div className="text-[11px] opacity-80">{preset.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* API Key Input */}

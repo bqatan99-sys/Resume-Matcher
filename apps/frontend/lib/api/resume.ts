@@ -66,6 +66,9 @@ interface ResumeResponse {
     parent_id?: string | null; // For determining if resume is tailored
     title?: string | null;
     has_template_docx?: boolean;
+    template_source_resume_id?: string | null;
+    preview_mode?: 'normalized' | 'template_pdf';
+    export_mode?: 'legacy' | 'template_docx' | 'template_latex';
   };
 }
 
@@ -86,6 +89,12 @@ interface ImproveResumeConfirmRequest {
     suggestion: string;
     lineNumber?: number | null;
   }>;
+}
+
+interface ImproveResumeOptions {
+  promptId?: string;
+  portfolioUrl?: string | null;
+  portfolioText?: string | null;
 }
 
 function normalizeResumeId(resumeId: string): string {
@@ -153,12 +162,14 @@ export async function uploadJobDescriptions(
 export async function improveResume(
   resumeId: string,
   jobId: string,
-  promptId?: string
+  options?: ImproveResumeOptions
 ): Promise<ImprovedResult> {
   return postImprove('/resumes/improve', {
     resume_id: resumeId,
     job_id: jobId,
-    prompt_id: promptId ?? null,
+    prompt_id: options?.promptId ?? null,
+    portfolio_url: options?.portfolioUrl?.trim() || null,
+    portfolio_text: options?.portfolioText?.trim() || null,
   });
 }
 
@@ -166,12 +177,14 @@ export async function improveResume(
 export async function previewImproveResume(
   resumeId: string,
   jobId: string,
-  promptId?: string
+  options?: ImproveResumeOptions
 ): Promise<ImprovedResult> {
   return postImprove('/resumes/improve/preview', {
     resume_id: resumeId,
     job_id: jobId,
-    prompt_id: promptId ?? null,
+    prompt_id: options?.promptId ?? null,
+    portfolio_url: options?.portfolioUrl?.trim() || null,
+    portfolio_text: options?.portfolioText?.trim() || null,
   });
 }
 
@@ -233,7 +246,8 @@ export async function attachResumeTemplate(resumeId: string, file: File): Promis
 export function getResumePdfUrl(
   resumeId: string,
   settings?: TemplateSettings,
-  locale?: Locale
+  locale?: Locale,
+  preview?: boolean
 ): string {
   const normalizedId = normalizeResumeId(resumeId);
   const params = new URLSearchParams();
@@ -262,6 +276,9 @@ export function getResumePdfUrl(
   if (locale) {
     params.set('lang', locale);
   }
+  if (preview) {
+    params.set('preview', 'true');
+  }
 
   return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/pdf?${params.toString()}`;
 }
@@ -269,6 +286,11 @@ export function getResumePdfUrl(
 export function getResumeDocxUrl(resumeId: string): string {
   const normalizedId = normalizeResumeId(resumeId);
   return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/docx`;
+}
+
+export function getResumeTexUrl(resumeId: string): string {
+  const normalizedId = normalizeResumeId(resumeId);
+  return `${API_BASE}/resumes/${encodeURIComponent(normalizedId)}/tex`;
 }
 
 export async function downloadResumePdf(
@@ -291,6 +313,16 @@ export async function downloadResumeDocx(resumeId: string): Promise<Blob> {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Failed to download resume DOCX (status ${res.status}): ${text}`);
+  }
+  return await res.blob();
+}
+
+export async function downloadResumeTex(resumeId: string): Promise<Blob> {
+  const url = getResumeTexUrl(resumeId);
+  const res = await apiFetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to download resume TEX (status ${res.status}): ${text}`);
   }
   return await res.blob();
 }

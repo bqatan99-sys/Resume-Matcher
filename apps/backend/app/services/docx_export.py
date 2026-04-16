@@ -12,25 +12,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
+from app.services.skill_taxonomy import split_technical_skills
 
 NAME_FONT_SIZE = Pt(16)
 CONTACT_FONT_SIZE = Pt(9)
 BODY_FONT_SIZE = Pt(10)
 SECTION_FONT_SIZE = Pt(10)
-TOOL_SKILL_HINTS = {
-    "sql",
-    "python",
-    "numpy",
-    "pandas",
-    "data visualization",
-    "lovable",
-    "bolt.new",
-    "automation",
-    "api integration",
-    "jira",
-    "figma",
-    "prototyping",
-}
 
 
 def _set_run_font(run: Any, size: Pt, *, bold: bool = False, italic: bool = False) -> None:
@@ -295,21 +282,7 @@ def _extract_skill_rows(paragraphs: list[Any], skills_idx: int) -> list[Any]:
 
 
 def _split_technical_skills(skills: list[str]) -> tuple[list[str], list[str]]:
-    product: list[str] = []
-    tools: list[str] = []
-    for skill in skills:
-        clean = skill.strip()
-        if not clean:
-            continue
-        if clean.lower() in TOOL_SKILL_HINTS:
-            tools.append(clean)
-        else:
-            product.append(clean)
-    if not product and tools:
-        return tools, []
-    if not tools and product:
-        return product, []
-    return product, tools
+    return split_technical_skills(skills)
 
 
 def _build_template_skill_lines(
@@ -332,17 +305,21 @@ def _build_template_skill_lines(
 
     if {label.lower() for label in labels[:3]} == {"product", "data & tools", "certifications"}:
         product_skills, tool_skills = _split_technical_skills(technical_skills)
-        certification_parts = []
+        tertiary_label = "Certifications"
+        tertiary_parts = []
         if certifications:
-            certification_parts.extend(certifications)
+            tertiary_parts.extend(certifications)
+        elif awards:
+            tertiary_label = "Awards"
+            tertiary_parts.extend(awards)
         if languages:
-            certification_parts.append(f"Languages: {', '.join(languages)}")
-        if awards:
-            certification_parts.append(f"Awards: {', '.join(awards)}")
+            tertiary_parts.append(f"Languages: {', '.join(languages)}")
+        elif awards and tertiary_label != "Awards":
+            tertiary_parts.append(f"Awards: {', '.join(awards)}")
         mapped = [
             ("Product", product_skills),
             ("Data & Tools", tool_skills),
-            ("Certifications", certification_parts),
+            (tertiary_label, tertiary_parts),
         ]
         return [f"{label}: {' | '.join(values)}" for label, values in mapped if values]
 
@@ -447,9 +424,10 @@ def _project_link_entries(project: dict[str, Any]) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     github = str(project.get("github") or "").strip()
     website = str(project.get("website") or "").strip()
-    if github:
+    primary_url = _normalize_url(website) if website else (_normalize_url(github) if github else "")
+    if github and _normalize_url(github) != primary_url:
         entries.append(("GitHub", _normalize_url(github)))
-    if website:
+    if website and _normalize_url(website) != primary_url:
         entries.append(("Website", _normalize_url(website)))
     return entries
 
@@ -529,12 +507,22 @@ def _generate_resume_docx_from_template(resume_data: dict[str, Any], template_by
             name = str(project.get("name") or "").strip()
             detail_text = _join_inline_text(_coerce_lines(project.get("description")))
             project_links = _project_link_entries(project)
+            primary_url = (
+                _normalize_url(str(project.get("website") or "").strip())
+                if str(project.get("website") or "").strip()
+                else _normalize_url(str(project.get("github") or "").strip())
+                if str(project.get("github") or "").strip()
+                else ""
+            )
             if name or detail_text or project_links:
                 paragraph_xml = _clone_paragraph_shell(archetypes["project_row"])
                 bold_run = _pick_run(archetypes["project_row"], bold=True)
                 normal_run = _pick_run(archetypes["project_row"], bold=False)
                 if name:
-                    paragraph_xml.append(_clone_run_xml(bold_run, text=name))
+                    if primary_url:
+                        _append_hyperlink_xml(paragraph_xml, archetypes["project_row"].part, bold_run, name, primary_url)
+                    else:
+                        paragraph_xml.append(_clone_run_xml(bold_run, text=name))
                 if detail_text:
                     prefix = ": " if name else ""
                     paragraph_xml.append(_clone_run_xml(normal_run, text=f"{prefix}{detail_text}"))
@@ -738,9 +726,25 @@ def _add_projects_section(document: DocumentType, projects: list[dict[str, Any]]
         paragraph.paragraph_format.line_spacing = 1
 
         name = str(project.get("name") or "").strip()
+        primary_url = (
+            _normalize_url(str(project.get("website") or "").strip())
+            if str(project.get("website") or "").strip()
+            else _normalize_url(str(project.get("github") or "").strip())
+            if str(project.get("github") or "").strip()
+            else ""
+        )
         if name:
-            run = paragraph.add_run(name)
-            _set_run_font(run, BODY_FONT_SIZE, bold=True)
+            if primary_url:
+                rel_id = paragraph.part.relate_to(primary_url, RT.HYPERLINK, is_external=True)
+                hyperlink = OxmlElement("w:hyperlink")
+                hyperlink.set(qn("r:id"), rel_id)
+                run = paragraph.add_run(name)
+                _set_run_font(run, BODY_FONT_SIZE, bold=True)
+                hyperlink.append(run._r)
+                paragraph._p.append(hyperlink)
+            else:
+                run = paragraph.add_run(name)
+                _set_run_font(run, BODY_FONT_SIZE, bold=True)
 
         detail_text = _join_inline_text(
             [str(item).strip() for item in (project.get("description") or []) if str(item).strip()]

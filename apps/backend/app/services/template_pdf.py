@@ -8,7 +8,8 @@ import subprocess
 from pathlib import Path
 from tempfile import mkdtemp
 
-from app.pdf import PDFRenderError, render_resume_pdf
+from app.errors import PDFRenderError
+from app.pdf import render_resume_pdf
 
 
 async def render_template_docx_pdf(

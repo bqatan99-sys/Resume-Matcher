@@ -251,6 +251,12 @@ Job Description:
 Keywords to emphasize (only if already supported by resume content):
 {job_keywords}
 
+Portfolio Evidence (supporting context only):
+{portfolio_context}
+
+Historical Resume Evidence Bank (use only when it matches the same employer, project, or clearly supported experience):
+{resume_evidence_bank}
+
 Original Resume:
 {original_resume}
 
@@ -266,6 +272,10 @@ Do NOT include personalInfo in your output - it will be preserved from the origi
 
 Rules:
 - Strengthen alignment by weaving in relevant keywords where evidence already exists
+- Prioritize required skills before preferred skills or general keywords
+- Prefer exact job-description phrasing in the summary, skills, titles, and bullet openings when the resume already supports it
+- Optimize for ATS readability: concise plain language, standard terminology, and natural keyword placement
+- Preserve recruiter readability: do not stuff keywords or make bullets awkward
 - You may rephrase bullet points to include keyword phrasing
 - Do NOT introduce new skills, tools, or certifications not in the resume
 - Do NOT change role, industry, or seniority level
@@ -279,6 +289,12 @@ Job Description:
 
 Keywords to emphasize:
 {job_keywords}
+
+Portfolio Evidence (supporting context only):
+{portfolio_context}
+
+Historical Resume Evidence Bank (use only when it matches the same employer, project, or clearly supported experience):
+{resume_evidence_bank}
 
 Original Resume:
 {original_resume}
@@ -295,6 +311,10 @@ Do NOT include personalInfo in your output - it will be preserved from the origi
 
 Rules:
 - Make targeted adjustments to bullet points to align with job description phrasing. Preserve the candidate's original details and voice - adjust wording, do not rewrite entirely.
+- Prioritize required skills before preferred skills or general keywords
+- Prefer exact job-description phrasing in the summary, skills, titles, and bullet openings when the resume already supports it
+- Optimize for ATS readability: concise plain language, standard terminology, and natural keyword placement
+- Preserve recruiter readability: do not stuff keywords or make bullets awkward
 - DO NOT invent new information
 - Preserve existing action verbs. Do not invent quantifiable achievements not in the original.
 - Keep proper nouns (names, company names, locations) unchanged
@@ -311,6 +331,12 @@ Job Description:
 Keywords to emphasize:
 {job_keywords}
 
+Portfolio Evidence (supporting context only):
+{portfolio_context}
+
+Historical Resume Evidence Bank (use only when it matches the same employer, project, or clearly supported experience):
+{resume_evidence_bank}
+
 Original Resume:
 {original_resume}
 
@@ -325,13 +351,13 @@ IMPROVE_PROMPT_OPTIONS = [
     },
     {
         "id": "keywords",
-        "label": "Keyword enhance",
-        "description": "Blend in relevant keywords without changing role or scope.",
+        "label": "ATS balance",
+        "description": "Prioritize ATS alignment while keeping phrasing natural and truthful.",
     },
     {
         "id": "full",
-        "label": "Full tailor",
-        "description": "Comprehensive tailoring using the job description.",
+        "label": "ATS maximize",
+        "description": "More aggressive ATS-oriented tailoring within the resume's real evidence.",
     },
 ]
 
@@ -414,9 +440,9 @@ RESUME_SCHEMA = RESUME_SCHEMA_EXAMPLE
 # Diff-based improvement: outputs targeted changes instead of full resume
 
 DIFF_STRATEGY_INSTRUCTIONS = {
-    "nudge": "Make minimal edits. Only rephrase where there is a clear match. Do not add new bullet points.",
-    "keywords": "Weave in relevant keywords where evidence already exists. You may rephrase bullets but do not add new ones.",
-    "full": "Make targeted adjustments. You may rephrase bullets and add new ones that elaborate on existing work, but do not invent new responsibilities.",
+    "nudge": "Make minimal edits. Only rephrase where there is a clear match. Improve the summary if it is weak, and touch 1-2 of the strongest bullets when evidence clearly supports it. Do not add new bullet points.",
+    "keywords": "Prioritize required skills, then preferred skills. Improve the summary as a cohesive overview, then touch 2-4 of the strongest experience or project bullets where evidence exists. Weave in exact job phrasing where evidence exists, keep wording ATS-friendly, and do not add new bullets.",
+    "full": "Prioritize required skills, then preferred skills. Improve the summary as a cohesive overview, then make ATS-friendly targeted adjustments across 2-5 of the strongest experience or project bullets when evidence supports it. You may add bullets that elaborate on existing work, but do not invent new responsibilities.",
 }
 
 DIFF_IMPROVE_PROMPT = """Given this resume and job description, output a JSON object with targeted changes to better align the resume with the job.
@@ -431,6 +457,12 @@ RULES:
 7. Generate all new text in {output_language}
 8. Do not use em dash characters
 9. Keep changes minimal and targeted — do not rewrite content that already aligns well
+10. Use portfolio evidence only as supporting context for experiences or projects already present in the resume
+11. Never create a new role, project, title, metric, or tool only because it appears in the portfolio
+12. When evidence supports it, improve the summary so it reads as one cohesive positioning statement for the target role
+13. Prefer changing multiple high-value bullets across the most relevant experiences or projects instead of making only one isolated bullet change
+14. You may borrow phrasing from the historical resume evidence bank only when it describes the same employer, project, or clearly the same work already represented in the current resume
+15. Prefer proven historical bullet variants over weak paraphrases when they are more specific and still truthful
 
 PATHS you can target:
 - "summary" — the resume summary text
@@ -447,6 +479,12 @@ Keywords to emphasize (only if already supported by resume content):
 
 Job Description:
 {job_description}
+
+Portfolio Evidence (supporting context only):
+{portfolio_context}
+
+Historical Resume Evidence Bank (use only when it matches the same employer, project, or clearly supported experience):
+{resume_evidence_bank}
 
 Original Resume:
 {original_resume}

@@ -98,6 +98,11 @@ export interface Data {
   outreach_message?: string;
   diff_summary?: ResumeDiffSummary;
   detailed_changes?: ResumeFieldDiff[];
+  warnings?: string[];
+  refinement_attempted?: boolean;
+  refinement_successful?: boolean;
+  portfolio_source_url?: string | null;
+  portfolio_summary?: string | null;
 }
 
 export interface ImprovedResult {

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Awaitable, NoReturn, Optional
 
+from app.errors import PDFRenderError
 from playwright.async_api import (
     Browser,
     Error as PlaywrightError,
@@ -15,12 +16,6 @@ from playwright.async_api import (
     Playwright,
     async_playwright,
 )
-
-
-class PDFRenderError(Exception):
-    """Custom exception for PDF rendering errors with helpful messages."""
-
-    pass
 
 
 _playwright = None
